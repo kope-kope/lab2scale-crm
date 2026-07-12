@@ -10,6 +10,7 @@
     "build": "tsc -b && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "typecheck": "tsc -b --noEmit",
+    "test": "node --import tsx --test \"server/**/*.test.ts\"",
     "lint": "eslint .",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "doctor": "tsx scripts/doctor.ts"
@@ -19,6 +20,7 @@
     "clsx": "^2.1.1",
     "compression": "^1.7.5",
     "express": "^4.21.2",
+    "google-auth-library": "^9.15.1",
     "lucide-react": "^0.469.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

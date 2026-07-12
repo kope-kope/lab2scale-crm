@@ -1,37 +1,29 @@
-import express from "express";
-import compression from "compression";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { createApp } from "./app.ts";
+import { makeRequireAuth } from "./auth/requireAuth.ts";
+import { makeGoogleVerifier, type TokenVerifier } from "./auth/verifyGoogleToken.ts";
+import { loadAuthConfig, googleClientId } from "./auth/config.ts";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.API_PORT || process.env.PORT || 8080);
 const isProd = process.env.NODE_ENV === "production";
 
-const app = express();
-app.use(compression());
-app.use(express.json({ limit: "1mb" }));
+// Build the real Google verifier lazily on first use, so the server still boots
+// (and /api/health stays up) before GOOGLE_CLIENT_ID is configured (LAB-7).
+// Until it is set, gated routes fail closed — the verifier throws → 401.
+let cached: TokenVerifier | null = null;
+const verify: TokenVerifier = (idToken) => {
+  if (!cached) cached = makeGoogleVerifier();
+  return cached(idToken);
+};
 
-// --- API ---------------------------------------------------------------
-const api = express.Router();
-
-api.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "lab2scale-crm", env: isProd ? "prod" : "dev" });
-});
-
-// Phase 1+ mounts /accounts, /contacts, /enrich, /drafts here — all
-// server-side so the Anthropic key and Sheets access never reach the browser.
-
-app.use("/api", api);
-
-// --- Static app (single container in prod) -----------------------------
-if (isProd) {
-  const clientDir = path.resolve(__dirname, "../dist");
-  app.use(express.static(clientDir));
-  // SPA fallback: anything not matched above returns index.html
-  app.get("*", (_req, res) => {
-    res.sendFile(path.join(clientDir, "index.html"));
-  });
+if (!googleClientId()) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[auth] GOOGLE_CLIENT_ID is not set — gated /api routes will reject until it is (LAB-7).",
+  );
 }
+
+const requireAuth = makeRequireAuth({ verify, config: loadAuthConfig() });
+const app = createApp(requireAuth);
 
 app.listen(PORT, "0.0.0.0", () => {
   // eslint-disable-next-line no-console
