@@ -5,8 +5,10 @@ dist/
 .env.local
 *.local
 .DS_Store
-# internal build plan / guidance — keep private, do not publish
+# internal build plan / guidance / process — keep private, do not publish
 CLAUDE.md
+plan.md
+operating-rhythm.md
 
 # never commit credentials — keyless ADC only
 *service-account*.json
