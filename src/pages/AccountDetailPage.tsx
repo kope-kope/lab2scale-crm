@@ -1,7 +1,20 @@
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Search, Globe } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Search } from "lucide-react";
+import { Button, Card, Metric } from "@/components/ds";
 import { MOCK_ACCOUNTS } from "@/data/mock";
+
+function BackLink() {
+  const navigate = useNavigate();
+  return (
+    <button
+      onClick={() => navigate("/accounts")}
+      className="inline-flex items-center gap-1.5 text-small text-muted transition-colors ease-ds hover:text-body"
+    >
+      <ArrowLeft size={16} strokeWidth={1.5} />
+      Accounts
+    </button>
+  );
+}
 
 export function AccountDetailPage() {
   const { id } = useParams();
@@ -10,64 +23,58 @@ export function AccountDetailPage() {
   if (!account) {
     return (
       <div>
-        <Link
-          to="/accounts"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" /> Accounts
-        </Link>
-        <p className="mt-6 text-sm text-muted-foreground">Account not found.</p>
+        <BackLink />
+        <p className="mt-8 text-muted">That account isn’t here.</p>
       </div>
     );
   }
 
   return (
     <div>
-      <Link
-        to="/accounts"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" /> Accounts
-      </Link>
+      <BackLink />
 
       <header className="mt-4 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{account.name}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{account.one_liner}</p>
+          <h1 className="text-h1 font-medium text-black">{account.name}</h1>
+          <p className="mt-2 text-muted">{account.one_liner}</p>
           <a
             href={`https://${account.website}`}
             target="_blank"
             rel="noreferrer"
-            className="mt-2 inline-flex items-center gap-1.5 text-xs text-accent hover:underline"
+            className="mt-2 inline-block text-small text-action"
           >
-            <Globe className="h-3.5 w-3.5" />
             {account.website}
           </a>
         </div>
-        <Button disabled title="Wired in Phase 2">
-          <Search className="h-4 w-4" />
+        {/* The one primary action on this view. Wired in Phase 2. */}
+        <Button disabled>
+          <Search size={16} strokeWidth={1.5} />
           Find contacts
         </Button>
       </header>
 
-      <div className="mt-8 grid gap-4 md:grid-cols-2">
-        <section className="rounded-lg border border-border bg-card p-5">
-          <h2 className="text-sm font-semibold">Account context</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
+      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Metric label="Contacts found" value="0" />
+        <Metric label="Warm paths" value="0" />
+        <Metric label="Drafts ready" value="0" />
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card title="Account context">
+          <p className="text-small text-muted">
             The configurable brain that makes the search good — target customer,
             exclusions, titles, geo, size, signals. The context editor lands in
             Phase 1.
           </p>
-        </section>
+        </Card>
 
-        <section className="rounded-lg border border-border bg-card p-5">
-          <h2 className="text-sm font-semibold">Contacts</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            No contacts yet. In Phase 2, “Find contacts” runs the finder agent and
-            fills this in — each with a <span className="font-medium">why_them</span>{" "}
-            rationale and a warm path where one exists.
+        <Card title="Contacts">
+          <p className="text-small text-muted">
+            No contacts yet. In Phase 2, find contacts runs the finder agent and
+            fills this in — each with a reason it picked them and a warm path
+            where one exists.
           </p>
-        </section>
+        </Card>
       </div>
     </div>
   );

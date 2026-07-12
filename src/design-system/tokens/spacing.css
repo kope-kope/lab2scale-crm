@@ -1,0 +1,39 @@
+/* lab2scale space, shape, depth, motion
+   Vendored from the lab2scale Design System project — do not edit by hand. */
+
+:root {
+  /* Spacing — 4px scale, nothing off-scale */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --space-64: 64px;
+  --space-96: 96px;
+
+  /* Radius */
+  --radius-control: 6px;   /* buttons, inputs, badges */
+  --radius-card: 12px;     /* cards, panels */
+  --radius-pill: 999px;    /* pills only */
+
+  /* Borders — the only border */
+  --border-hairline: 1px solid var(--border);
+
+  /* Elevation — floating layers only (dropdown, modal) */
+  --shadow-float: 0 8px 24px rgba(30, 25, 71, 0.12);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 3px var(--blue-50);
+
+  /* Grid */
+  --content-max: 1200px;
+  --gutter: 24px;
+
+  /* Motion — fast, small, purposeful. Nothing bounces. */
+  --duration-state: 120ms;
+  --duration-enter: 200ms;
+  --duration-max: 300ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}

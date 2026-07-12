@@ -1,67 +1,63 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { Building2, Users, Network, Target, Sparkles } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Building2, Users, Network, Target } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { NavItem } from "@/components/ds";
 
-const NAV = [
+const NAV: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/accounts", label: "Accounts", icon: Building2 },
   { to: "/contacts", label: "Contacts", icon: Users },
   { to: "/network", label: "Network", icon: Network },
   { to: "/leads", label: "Leads", icon: Target },
 ];
 
-export function AppShell() {
+/** Plain-type wordmark with a blue "2" — provisional, per the design system. */
+function Wordmark() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen max-w-[1400px]">
-        {/* Sidebar */}
-        <aside className="hidden w-60 shrink-0 border-r border-border px-4 py-6 md:block">
-          <div className="mb-8 flex items-center gap-2 px-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
-              l2s
-            </span>
-            <div className="leading-tight">
-              <p className="text-sm font-semibold">lab2scale</p>
-              <p className="text-xs text-muted-foreground">CRM</p>
-            </div>
-          </div>
+    <span className="text-h3 font-medium text-black">
+      lab<span className="text-action">2</span>scale
+    </span>
+  );
+}
 
-          <nav className="space-y-1">
-            {NAV.map(({ to, label, icon: Icon }) => (
-              <NavLink
+export function AppShell() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+
+  return (
+    <div className="flex min-h-screen bg-page">
+      <aside className="hidden w-60 shrink-0 border-r border-border bg-surface px-4 py-6 md:block">
+        <div className="mb-8 flex items-center gap-2 px-3">
+          <Wordmark />
+          <span className="text-caption text-muted">CRM</span>
+        </div>
+
+        <nav className="flex flex-col gap-1">
+          {NAV.map(({ to, label, icon: Icon }) => {
+            const active = pathname.startsWith(to);
+            return (
+              <NavItem
                 key={to}
-                to={to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-secondary text-secondary-foreground"
-                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                  )
-                }
+                href={to}
+                active={active}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(to);
+                }}
+                style={{ width: "100%" }}
               >
-                <Icon className="h-4 w-4" />
+                <Icon size={16} strokeWidth={1.5} />
                 {label}
-              </NavLink>
-            ))}
-          </nav>
+              </NavItem>
+            );
+          })}
+        </nav>
+      </aside>
 
-          <div className="mt-8 rounded-lg border border-border bg-card p-3">
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-foreground">
-              <Sparkles className="h-3.5 w-3.5 text-accent" />
-              MVP focus
-            </div>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Open an account, hit <span className="font-medium text-foreground">Find contacts</span>,
-              review the drafts. Never sends.
-            </p>
-          </div>
-        </aside>
-
-        {/* Main */}
-        <main className="flex-1 px-6 py-6 md:px-10 md:py-8">
+      <main className="flex-1 px-6 py-8 md:px-10">
+        <div className="mx-auto max-w-content">
           <Outlet />
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

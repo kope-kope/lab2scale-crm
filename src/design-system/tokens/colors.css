@@ -1,0 +1,88 @@
+/* lab2scale color tokens — v0.1
+   Four families: blue (action), midnight (authority), sky (highlight), neutral (spine).
+   ● core stops extracted from lab-2-scale.com.
+   Vendored from the lab2scale Design System project — do not edit by hand. */
+
+:root {
+  /* Blue — action */
+  --blue-50:  #EBF3FF;
+  --blue-100: #D6E7FF;
+  --blue-200: #ADCFFF;
+  --blue-300: #6FA8FF;
+  --blue-400: #3C89FF;
+  --blue-500: #116DFF; /* ● core */
+  --blue-600: #0F5CD6;
+  --blue-700: #2061B7; /* ● */
+  --blue-800: #164680;
+  --blue-900: #0E2E54;
+
+  /* Midnight — authority */
+  --midnight-50:  #F2F1F7;
+  --midnight-100: #DEDCE8;
+  --midnight-200: #BCB8CE;
+  --midnight-300: #8B85A8;
+  --midnight-400: #5D5680;
+  --midnight-500: #3B3560;
+  --midnight-600: #2A2452;
+  --midnight-700: #1E1947; /* ● core */
+  --midnight-800: #151132;
+  --midnight-900: #0C0A1E;
+
+  /* Sky — highlight */
+  --sky-50:  #F2FBFE;
+  --sky-100: #E3F5FD;
+  --sky-200: #BDE9FB; /* ● core */
+  --sky-300: #8FD8F5;
+  --sky-400: #5BC1E8;
+  --sky-500: #2FA3D4;
+  --sky-600: #1E82AE;
+  --sky-700: #166485;
+  --sky-800: #0F4760;
+  --sky-900: #082B3B;
+
+  /* Neutral — the spine */
+  --neutral-50:  #FFFFFF;
+  --neutral-100: #F6F6F6;
+  --neutral-200: #E5E5E5;
+  --neutral-300: #C9C9C9;
+  --neutral-400: #9B9B9B;
+  --neutral-500: #6E6E6E;
+  --neutral-600: #4A4A4A;
+  --neutral-700: #2C2C2C;
+  --neutral-800: #1A1A1A;
+  --neutral-900: #000000; /* ● */
+
+  /* Semantic — fill / tint / text-on-tint */
+  --success:      #0E9F6E;
+  --success-tint: #E6F6F0;
+  --success-text: #075E42;
+  --warning:      #D97706;
+  --warning-tint: #FDF3E7;
+  --warning-text: #7C4308;
+  --danger:       #DC2626;
+  --danger-tint:  #FDECEC;
+  --danger-text:  #7F1D1D;
+
+  /* Aliases — use these in components */
+  --action:        var(--blue-500);
+  --action-hover:  var(--blue-600);
+  --action-tint:   var(--blue-50);
+  --action-text:   var(--blue-800);  /* text on blue tint */
+  --text-body:     var(--neutral-800);
+  --text-muted:    var(--neutral-500);
+  --text-inverse:  #FFFFFF;
+  --border:        var(--neutral-200);
+  --border-hover:  var(--neutral-300);
+  --page:          var(--neutral-100);
+  --surface:       var(--neutral-50);   /* cards */
+  --surface-dark:  var(--midnight-700); /* heroes, footers, deck titles */
+  --canvas-dark:   var(--midnight-800); /* dark-mode canvas */
+  --action-dark:   var(--blue-400);     /* blue on dark surfaces */
+
+  /* Data viz series order */
+  --chart-1: var(--blue-500);
+  --chart-2: var(--sky-400);
+  --chart-3: var(--midnight-400);
+  --chart-4: var(--neutral-400);
+  --chart-grid: var(--neutral-200);
+}

@@ -7,10 +7,10 @@ export function PlaceholderPage({
 }) {
   return (
     <div>
-      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-      <p className="mt-1 max-w-prose text-sm text-muted-foreground">{blurb}</p>
-      <div className="mt-8 grid place-items-center rounded-lg border border-dashed border-border bg-card/40 py-20 text-sm text-muted-foreground">
-        Coming soon
+      <h1 className="text-h1 font-medium text-black">{title}</h1>
+      <p className="mt-2 max-w-[60ch] text-muted">{blurb}</p>
+      <div className="mt-8 rounded-card border border-dashed border-border px-6 py-20 text-center text-small text-muted">
+        Nothing here yet. This screen arrives in a later phase.
       </div>
     </div>
   );

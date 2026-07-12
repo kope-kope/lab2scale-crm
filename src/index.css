@@ -1,79 +1,30 @@
+/* Design-system tokens first (define the CSS vars + base body), then Tailwind. */
+@import "./design-system/tokens/fonts.css";
+@import "./design-system/tokens/colors.css";
+@import "./design-system/tokens/typography.css";
+@import "./design-system/tokens/spacing.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/**
- * Semantic color tokens as HSL channels, consumed by tailwind.config.ts.
- * Light theme maps onto the neutral/blue ramps; .dark maps onto midnight.
- * No component should ever hardcode a hex — change a token here instead.
- */
 @layer base {
-  :root {
-    --background: 210 40% 99%;
-    --foreground: 222 47% 11%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-
-    --primary: 226 91% 58%;          /* blue-500 */
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%; /* neutral-500 */
-
-    --accent: 199 89% 48%;           /* sky-500 */
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 214 32% 91%;           /* neutral-200 */
-    --input: 214 32% 91%;
-    --ring: 226 91% 58%;
-
-    --radius: 0.625rem;
-  }
-
-  .dark {
-    --background: 222 54% 10%;        /* midnight-900 */
-    --foreground: 210 40% 98%;
-
-    --card: 221 41% 14%;             /* midnight-800 */
-    --card-foreground: 210 40% 98%;
-
-    --primary: 222 100% 68%;         /* blue-400 for contrast on dark */
-    --primary-foreground: 222 54% 10%;
-
-    --secondary: 221 34% 20%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 221 34% 20%;
-    --muted-foreground: 215 20% 65%;
-
-    --accent: 199 89% 48%;
-    --accent-foreground: 222 54% 10%;
-
-    --destructive: 0 63% 50%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 221 34% 22%;
-    --input: 221 34% 22%;
-    --ring: 222 100% 68%;
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
   html {
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
+  /* Re-assert body over Tailwind preflight, from tokens only. */
   body {
-    @apply bg-background text-foreground font-sans;
+    background: var(--page);
+    color: var(--text-body);
+    font-family: var(--font-sans);
+    font-size: var(--body-size);
+    line-height: var(--body-lh);
+    font-weight: var(--weight-regular);
+  }
+  /* Dark mode: midnight canvas (see design system "Dark mode"). */
+  .dark body {
+    background: var(--canvas-dark);
+    color: var(--text-inverse);
   }
 }
