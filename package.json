@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "typecheck": "tsc -b --noEmit",
-    "test": "node --import tsx --test \"server/**/*.test.ts\"",
+    "test": "node --import tsx --test \"server/**/*.test.ts\" \"shared/**/*.test.ts\"",
     "lint": "eslint .",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "doctor": "tsx scripts/doctor.ts"
