@@ -10,7 +10,10 @@ CLAUDE.md
 plan.md
 operating-rhythm.md
 
-# never commit credentials — keyless ADC only
+# never commit credentials
 *service-account*.json
 *sa-key*.json
+*client_secret*.json
 credentials.json
+.env.*
+!.env.example
