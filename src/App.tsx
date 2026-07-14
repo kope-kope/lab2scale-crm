@@ -2,43 +2,31 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { AccountsPage } from "@/pages/AccountsPage";
 import { AccountDetailPage } from "@/pages/AccountDetailPage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
+import { ContactsPage } from "@/pages/ContactsPage";
+import { LeadsPage } from "@/pages/LeadsPage";
+import { LoginPage } from "@/pages/LoginPage";
+import { useAuth } from "@/auth/AuthProvider";
+import { DriveDataProvider } from "@/data/DriveDataProvider";
 
 export default function App() {
+  const { status } = useAuth();
+
+  if (status !== "authed") {
+    return <LoginPage />;
+  }
+
   return (
-    <Routes>
-      <Route element={<AppShell />}>
-        <Route index element={<Navigate to="/accounts" replace />} />
-        <Route path="/accounts" element={<AccountsPage />} />
-        <Route path="/accounts/:id" element={<AccountDetailPage />} />
-        <Route
-          path="/contacts"
-          element={
-            <PlaceholderPage
-              title="Contacts"
-              blurb="People found for each account. Discovery lands here in Phase 2."
-            />
-          }
-        />
-        <Route
-          path="/network"
-          element={
-            <PlaceholderPage
-              title="Network"
-              blurb="People we know — the unlock. The finder reads this before it searches."
-            />
-          }
-        />
-        <Route
-          path="/leads"
-          element={
-            <PlaceholderPage
-              title="Leads"
-              blurb="Prospective lab2scale clients. Ranker agent arrives in Phase 4."
-            />
-          }
-        />
-      </Route>
-    </Routes>
+    <DriveDataProvider>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/accounts" replace />} />
+          <Route path="/accounts" element={<AccountsPage />} />
+          <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          <Route path="/contacts" element={<ContactsPage />} />
+          <Route path="/leads" element={<LeadsPage />} />
+          <Route path="*" element={<Navigate to="/accounts" replace />} />
+        </Route>
+      </Routes>
+    </DriveDataProvider>
   );
 }

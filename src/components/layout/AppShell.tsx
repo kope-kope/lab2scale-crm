@@ -1,16 +1,15 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Building2, Users, Network, Target } from "lucide-react";
+import { Building2, Users, Target, LogOut } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavItem } from "@/components/ds";
+import { useAuth } from "@/auth/AuthProvider";
 
 const NAV: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/accounts", label: "Accounts", icon: Building2 },
   { to: "/contacts", label: "Contacts", icon: Users },
-  { to: "/network", label: "Network", icon: Network },
   { to: "/leads", label: "Leads", icon: Target },
 ];
 
-/** Plain-type wordmark with a blue "2" — provisional, per the design system. */
 function Wordmark() {
   return (
     <span className="text-h3 font-medium text-black">
@@ -22,10 +21,11 @@ function Wordmark() {
 export function AppShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
 
   return (
     <div className="flex min-h-screen bg-page">
-      <aside className="hidden w-60 shrink-0 border-r border-border bg-surface px-4 py-6 md:block">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 md:flex">
         <div className="mb-8 flex items-center gap-2 px-3">
           <Wordmark />
           <span className="text-caption text-muted">CRM</span>
@@ -51,6 +51,18 @@ export function AppShell() {
             );
           })}
         </nav>
+
+        <div className="mt-auto border-t border-border pt-4">
+          <div className="px-3 text-small text-body">{user?.name ?? user?.email}</div>
+          <div className="px-3 text-caption text-muted">{user?.email}</div>
+          <button
+            onClick={signOut}
+            className="mt-2 inline-flex items-center gap-2 rounded-control px-3 py-2 text-small text-muted transition-colors ease-ds hover:bg-neutral-100 hover:text-body"
+          >
+            <LogOut size={16} strokeWidth={1.5} />
+            Sign out
+          </button>
+        </div>
       </aside>
 
       <main className="flex-1 px-6 py-8 md:px-10">
