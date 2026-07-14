@@ -1,7 +1,14 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Search } from "lucide-react";
-import { Button, Card, Metric } from "@/components/ds";
-import { MOCK_ACCOUNTS } from "@/data/mock";
+import { ArrowLeft } from "lucide-react";
+import { Card, Table, type TableColumn, type TableRow } from "@/components/ds";
+import { ListState } from "@/components/ListState";
+import { useDriveData } from "@/data/DriveDataProvider";
+
+const CONTACT_COLUMNS: TableColumn[] = [
+  { key: "name", label: "Name" },
+  { key: "title", label: "Title" },
+  { key: "email", label: "Email" },
+];
 
 function BackLink() {
   const navigate = useNavigate();
@@ -18,13 +25,15 @@ function BackLink() {
 
 export function AccountDetailPage() {
   const { id } = useParams();
-  const account = MOCK_ACCOUNTS.find((a) => a.id === id);
+  const { data, loading, error } = useDriveData();
+  const account = data?.accounts.find((a) => a.id === id);
+  const contacts = (data?.contacts ?? []).filter((c) => c.account_id === id);
 
-  if (!account) {
+  if (!loading && !account) {
     return (
       <div>
         <BackLink />
-        <p className="mt-8 text-muted">That account isn’t here.</p>
+        <p className="mt-8 text-muted">That account isn’t in Drive.</p>
       </div>
     );
   }
@@ -32,11 +41,10 @@ export function AccountDetailPage() {
   return (
     <div>
       <BackLink />
-
-      <header className="mt-4 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-h1 font-medium text-black">{account.name}</h1>
-          <p className="mt-2 text-muted">{account.one_liner}</p>
+      <header className="mt-4">
+        <h1 className="text-h1 font-medium text-black">{account?.name || account?.id || "…"}</h1>
+        {account?.one_liner && <p className="mt-2 text-muted">{account.one_liner}</p>}
+        {account?.website && (
           <a
             href={`https://${account.website}`}
             target="_blank"
@@ -45,35 +53,32 @@ export function AccountDetailPage() {
           >
             {account.website}
           </a>
-        </div>
-        {/* The one primary action on this view. Wired in Phase 2. */}
-        <Button disabled>
-          <Search size={16} strokeWidth={1.5} />
-          Find contacts
-        </Button>
+        )}
       </header>
 
-      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Metric label="Contacts found" value="0" />
-        <Metric label="Warm paths" value="0" />
-        <Metric label="Drafts ready" value="0" />
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Card title="Account context">
-          <p className="text-small text-muted">
-            The configurable brain that makes the search good — target customer,
-            exclusions, titles, geo, size, signals. The context editor lands in
-            Phase 1.
-          </p>
-        </Card>
-
+      <div className="mt-8">
         <Card title="Contacts">
-          <p className="text-small text-muted">
-            No contacts yet. In Phase 2, find contacts runs the finder agent and
-            fills this in — each with a reason it picked them and a warm path
-            where one exists.
-          </p>
+          <ListState
+            loading={loading}
+            error={error}
+            isEmpty={contacts.length === 0}
+            emptyText="No contacts linked to this account yet (match on account_id in the Contacts sheet)."
+          >
+            <Table
+              columns={CONTACT_COLUMNS}
+              rows={contacts.map<TableRow>((c) => ({
+                name: c.name || c.id,
+                title: c.title ?? "",
+                email: c.email ? (
+                  <a href={`mailto:${c.email}`} className="text-action">
+                    {c.email}
+                  </a>
+                ) : (
+                  ""
+                ),
+              }))}
+            />
+          </ListState>
         </Card>
       </div>
     </div>
