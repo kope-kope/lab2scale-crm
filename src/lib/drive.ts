@@ -1,31 +1,31 @@
 import { parseCsv } from "@shared/csv";
-import { toAccounts, toContacts, toLeads } from "@shared/parseRows";
-import { FOLDERS } from "@shared/model";
+import { toContacts } from "@shared/parseRows";
+import { AREA_FOLDERS } from "@shared/model";
 import type { Account, Contact, Lead } from "@shared/model";
 
 /**
- * Reads the Accounts/Contacts/Leads records from the shared Drive folder, as the
- * signed-in user (their access token).
+ * Reads the CRM data from the shared Drive folder, as the signed-in user.
  *
- * The data lives in a Shared Drive, so queries must scope to that drive with
- * corpora=drive + driveId (plus supportsAllDrives / includeItemsFromAllDrives).
- * Using corpora=allDrives here returns 404. driveId is the Shared Drive's id,
- * which equals the top-folder id we were given.
+ * Structure (per the "folder per company" model):
+ *   <top>/Accounts/<Company>/...     each account is a company folder
+ *   <top>/Leads/<Company>/...        each lead is a company folder
+ *   <top>/Contacts/<a sheet>         contacts are rows in one sheet
  *
- * Each subfolder holds one Google Sheet; we export it as CSV (drive.readonly
- * permits export — no separate Sheets scope needed) and parse it into records.
+ * The top folder is a Shared Drive, so every query scopes with corpora=drive +
+ * driveId (== the top-folder id) plus supportsAllDrives/includeItemsFromAllDrives.
  */
 const DRIVE = "https://www.googleapis.com/drive/v3";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 
-interface DriveFile {
+export interface DriveFile {
   id: string;
   name: string;
   mimeType: string;
+  webViewLink?: string;
+  modifiedTime?: string;
 }
 
-/** Pull a human-readable reason out of a Google API error body, if present. */
 function reasonFrom(body: string): string {
   try {
     const j = JSON.parse(body) as { error?: { message?: string } };
@@ -39,6 +39,7 @@ async function driveFetch(path: string, token: string): Promise<Response> {
   return fetch(`${DRIVE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
 }
 
+/** List children of a folder within the shared drive, optionally by mime type. */
 async function listChildren(
   token: string,
   driveId: string,
@@ -49,12 +50,13 @@ async function listChildren(
   if (mimeType) q += ` and mimeType = '${mimeType}'`;
   const params = new URLSearchParams({
     q,
-    fields: "files(id,name,mimeType)",
+    fields: "files(id,name,mimeType,webViewLink,modifiedTime)",
     corpora: "drive",
     driveId,
     supportsAllDrives: "true",
     includeItemsFromAllDrives: "true",
-    pageSize: "100",
+    orderBy: "name",
+    pageSize: "200",
   });
   const res = await driveFetch(`/files?${params.toString()}`, token);
   if (!res.ok) {
@@ -62,8 +64,7 @@ async function listChildren(
     if (res.status === 401) throw new Error("Your session expired — sign in again.");
     throw new Error(`Couldn't reach Google Drive (${res.status}).${detail}`);
   }
-  const data = (await res.json()) as { files?: DriveFile[] };
-  return data.files ?? [];
+  return ((await res.json()) as { files?: DriveFile[] }).files ?? [];
 }
 
 async function exportCsv(token: string, fileId: string): Promise<string> {
@@ -73,20 +74,18 @@ async function exportCsv(token: string, fileId: string): Promise<string> {
   );
   if (!res.ok) {
     const detail = reasonFrom(await res.text().catch(() => ""));
-    throw new Error(`Couldn't read a sheet (${res.status}).${detail}`);
+    throw new Error(`Couldn't read the Contacts sheet (${res.status}).${detail}`);
   }
   return res.text();
 }
 
-/** Read one subfolder (by name) → its sheet's value grid. Empty if missing. */
-async function readGrid(token: string, driveId: string, folderName: string): Promise<string[][]> {
-  const sub = (await listChildren(token, driveId, driveId, FOLDER_MIME)).find(
-    (f) => f.name === folderName,
-  );
-  if (!sub) return [];
-  const sheet = (await listChildren(token, driveId, sub.id, SHEET_MIME))[0];
-  if (!sheet) return [];
-  return parseCsv(await exportCsv(token, sheet.id));
+async function findFolder(
+  token: string,
+  driveId: string,
+  parentId: string,
+  name: string,
+): Promise<DriveFile | undefined> {
+  return (await listChildren(token, driveId, parentId, FOLDER_MIME)).find((f) => f.name === name);
 }
 
 export interface DriveData {
@@ -95,16 +94,39 @@ export interface DriveData {
   leads: Lead[];
 }
 
-/** `topFolderId` is the Shared Drive id (also used as the driveId scope). */
+/** `topFolderId` is the Shared Drive id (also the driveId scope). */
 export async function readAll(token: string, topFolderId: string): Promise<DriveData> {
-  const [aGrid, cGrid, lGrid] = await Promise.all([
-    readGrid(token, topFolderId, FOLDERS.accounts.folderName),
-    readGrid(token, topFolderId, FOLDERS.contacts.folderName),
-    readGrid(token, topFolderId, FOLDERS.leads.folderName),
+  const [accountsArea, leadsArea, contactsArea] = await Promise.all([
+    findFolder(token, topFolderId, topFolderId, AREA_FOLDERS.accounts),
+    findFolder(token, topFolderId, topFolderId, AREA_FOLDERS.leads),
+    findFolder(token, topFolderId, topFolderId, AREA_FOLDERS.contacts),
   ]);
+
+  const [accountFolders, leadFolders, contacts] = await Promise.all([
+    accountsArea ? listChildren(token, topFolderId, accountsArea.id, FOLDER_MIME) : Promise.resolve([]),
+    leadsArea ? listChildren(token, topFolderId, leadsArea.id, FOLDER_MIME) : Promise.resolve([]),
+    contactsArea ? readContacts(token, topFolderId, contactsArea.id) : Promise.resolve([]),
+  ]);
+
   return {
-    accounts: toAccounts(aGrid),
-    contacts: toContacts(cGrid),
-    leads: toLeads(lGrid),
+    accounts: accountFolders.map((f) => ({ id: f.id, name: f.name })),
+    leads: leadFolders.map((f) => ({ id: f.id, name: f.name })),
+    contacts,
   };
+}
+
+/** Read the first spreadsheet inside the Contacts folder into typed contacts. */
+async function readContacts(token: string, driveId: string, contactsFolderId: string): Promise<Contact[]> {
+  const sheet = (await listChildren(token, driveId, contactsFolderId, SHEET_MIME))[0];
+  if (!sheet) return [];
+  return toContacts(parseCsv(await exportCsv(token, sheet.id)));
+}
+
+/** Files inside one account/lead company folder (for the detail screen). */
+export async function listFolderFiles(
+  token: string,
+  driveId: string,
+  folderId: string,
+): Promise<DriveFile[]> {
+  return listChildren(token, driveId, folderId);
 }

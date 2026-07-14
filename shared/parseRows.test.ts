@@ -1,80 +1,72 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseSheet, toAccounts, toLeads } from "./parseRows.ts";
+import { parseSheet, toContacts } from "./parseRows.ts";
 
 test("maps rows to objects keyed by header name", () => {
   const values = [
     ["id", "name", "status"],
-    ["a1", "Apollo Atomics", "active"],
+    ["c1", "Ada Lovelace", "new"],
   ];
   assert.deepEqual(parseSheet(values), [
-    { id: "a1", name: "Apollo Atomics", status: "active" },
+    { id: "c1", name: "Ada Lovelace", status: "new" },
   ]);
 });
 
-test("is tolerant of reordered columns", () => {
+test("toContacts is tolerant of reordered columns", () => {
   const values = [
-    ["name", "id", "owner"],
-    ["Apollo Atomics", "a1", "Amos"],
+    ["name", "id", "email"],
+    ["Ada Lovelace", "c1", "ada@example.com"],
   ];
-  const [acc] = toAccounts(values);
-  assert.equal(acc.id, "a1");
-  assert.equal(acc.name, "Apollo Atomics");
-  assert.equal(acc.owner, "Amos");
+  const [c] = toContacts(values);
+  assert.equal(c.id, "c1");
+  assert.equal(c.name, "Ada Lovelace");
+  assert.equal(c.email, "ada@example.com");
 });
 
-test("drops unknown columns from the typed shape", () => {
+test("toContacts drops unknown columns from the typed shape", () => {
   const values = [
     ["id", "name", "internal_note"],
-    ["a1", "Apollo Atomics", "ignore me"],
+    ["c1", "Ada", "ignore me"],
   ];
-  const [acc] = toAccounts(values);
-  assert.equal(acc.name, "Apollo Atomics");
-  assert.equal((acc as unknown as Record<string, unknown>).internal_note, undefined);
+  const [c] = toContacts(values);
+  assert.equal(c.name, "Ada");
+  assert.equal((c as unknown as Record<string, unknown>).internal_note, undefined);
 });
 
-test("missing optional field is undefined, not a crash", () => {
-  const values = [
+test("toContacts: missing optional field is undefined, not a crash", () => {
+  const [c] = toContacts([
     ["id", "name"],
-    ["a1", "Apollo Atomics"],
-  ];
-  const [acc] = toAccounts(values);
-  assert.equal(acc.website, undefined);
-  assert.equal(acc.status, undefined);
+    ["c1", "Ada"],
+  ]);
+  assert.equal(c.email, undefined);
+  assert.equal(c.account, undefined);
 });
 
-test("drops blank rows and rows without an id", () => {
+test("toContacts drops blank rows and rows without an id", () => {
   const values = [
     ["id", "name"],
-    ["a1", "Apollo Atomics"],
+    ["c1", "Ada"],
     ["", ""],
-    ["", "orphan with no id"],
-    ["a2", "Second"],
+    ["", "orphan"],
+    ["c2", "Grace"],
   ];
-  const accts = toAccounts(values);
-  assert.equal(accts.length, 2);
+  const contacts = toContacts(values);
   assert.deepEqual(
-    accts.map((a) => a.id),
-    ["a1", "a2"],
+    contacts.map((c) => c.id),
+    ["c1", "c2"],
   );
 });
 
 test("trims whitespace in headers and cells", () => {
-  const values = [
+  const [c] = toContacts([
     [" id ", " company "],
-    ["  l1  ", "  Widgets Inc "],
-  ];
-  const [lead] = toLeads(values);
-  assert.equal(lead.id, "l1");
-  assert.equal(lead.company, "Widgets Inc");
+    ["  c1  ", "  Widgets Inc "],
+  ]);
+  assert.equal(c.id, "c1");
+  assert.equal(c.company, "Widgets Inc");
 });
 
-test("empty grid yields no records", () => {
+test("empty and header-only sheets yield no records", () => {
   assert.deepEqual(parseSheet([]), []);
-  assert.deepEqual(toAccounts([]), []);
-});
-
-test("header-only sheet yields no records", () => {
-  const values = [["id", "name", "website", "stage", "one_liner", "status", "owner"]];
-  assert.deepEqual(toAccounts(values), []);
+  assert.deepEqual(toContacts([["id", "name"]]), []);
 });
