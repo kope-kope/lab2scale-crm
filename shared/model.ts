@@ -1,26 +1,29 @@
 /**
- * The data model — one place that declares the record types and how each Drive
- * subfolder maps to them. Nothing else in the codebase should know folder names
- * or column order; import from here.
+ * The data model. Two shapes of record:
+ *  - Accounts and Leads are **folder-backed**: each company is a subfolder inside
+ *    the `Accounts` / `Leads` folder. The record is the folder (id + name).
+ *  - Contacts are **sheet-backed**: one Google Sheet of rows, linked to an account
+ *    by the company/account name.
  *
- * Columns mirror the header rows created in the shared Drive (LAB-6). Every
- * field except `id` is optional: Drive is edited by humans, so treat any cell as
- * possibly blank.
+ * Nothing else in the codebase should know folder names or column order.
  */
 
+/** A company folder inside Accounts/. */
 export interface Account {
-  id: string;
-  name?: string;
-  website?: string;
-  stage?: string;
-  one_liner?: string;
-  status?: string;
-  owner?: string;
+  id: string; // Drive folder id
+  name: string; // company name (folder name)
 }
 
+/** A company folder inside Leads/. */
+export interface Lead {
+  id: string; // Drive folder id
+  name: string; // company name (folder name)
+}
+
+/** A row in the Contacts sheet. `account` links to an Account by company name. */
 export interface Contact {
   id: string;
-  account_id?: string;
+  account?: string;
   name?: string;
   title?: string;
   company?: string;
@@ -29,40 +32,21 @@ export interface Contact {
   notes?: string;
 }
 
-export interface Lead {
-  id: string;
-  company?: string;
-  sector?: string;
-  stage?: string;
-  rank?: string;
-  rationale?: string;
-  status?: string;
-}
+/** Top-level folder names inside the shared Drive. */
+export const AREA_FOLDERS = {
+  accounts: "Accounts",
+  contacts: "Contacts",
+  leads: "Leads",
+} as const;
 
-export type RecordKind = "accounts" | "contacts" | "leads";
-
-export interface FolderSpec {
-  kind: RecordKind;
-  /** The subfolder name inside the shared Drive top folder. */
-  folderName: string;
-  /** Expected header columns, in the canonical order. Order in Drive may differ. */
-  columns: string[];
-}
-
-export const FOLDERS: Record<RecordKind, FolderSpec> = {
-  accounts: {
-    kind: "accounts",
-    folderName: "Accounts",
-    columns: ["id", "name", "website", "stage", "one_liner", "status", "owner"],
-  },
-  contacts: {
-    kind: "contacts",
-    folderName: "Contacts",
-    columns: ["id", "account_id", "name", "title", "company", "email", "status", "notes"],
-  },
-  leads: {
-    kind: "leads",
-    folderName: "Leads",
-    columns: ["id", "company", "sector", "stage", "rank", "rationale", "status"],
-  },
-};
+/** Columns the Contacts sheet is read against (by header name; extras ignored). */
+export const CONTACT_COLUMNS = [
+  "id",
+  "account",
+  "name",
+  "title",
+  "company",
+  "email",
+  "status",
+  "notes",
+];
