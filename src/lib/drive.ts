@@ -130,3 +130,96 @@ export async function listFolderFiles(
 ): Promise<DriveFile[]> {
   return listChildren(token, driveId, folderId);
 }
+
+// --- Write-back (additive only — never deletes or overwrites) --------------
+
+const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets";
+
+async function createFolder(token: string, parentId: string, name: string): Promise<DriveFile> {
+  const res = await fetch(`${DRIVE}/files?supportsAllDrives=true&fields=id,name,mimeType`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId] }),
+  });
+  if (!res.ok) {
+    const detail = reasonFrom(await res.text().catch(() => ""));
+    throw new Error(`Couldn't create the folder (${res.status}).${detail}`);
+  }
+  return res.json() as Promise<DriveFile>;
+}
+
+/** Create a company folder inside Accounts/ (or Leads/). Returns the new folder. */
+export async function createCompanyFolder(
+  token: string,
+  topFolderId: string,
+  area: "accounts" | "leads",
+  name: string,
+): Promise<DriveFile> {
+  const areaName = area === "accounts" ? AREA_FOLDERS.accounts : AREA_FOLDERS.leads;
+  const areaFolder = await findFolder(token, topFolderId, topFolderId, areaName);
+  if (!areaFolder) throw new Error(`The ${areaName} folder isn't in Drive.`);
+  return createFolder(token, areaFolder.id, name.trim());
+}
+
+/** Locate the Contacts sheet and read its header row (so appends map correctly). */
+async function contactsSheet(
+  token: string,
+  topFolderId: string,
+): Promise<{ id: string; headers: string[] }> {
+  const area = await findFolder(token, topFolderId, topFolderId, AREA_FOLDERS.contacts);
+  if (!area) throw new Error("The Contacts folder isn't in Drive.");
+  const sheet = (await listChildren(token, topFolderId, area.id, SHEET_MIME))[0];
+  if (!sheet) throw new Error("No spreadsheet inside the Contacts folder.");
+  const res = await fetch(`${SHEETS}/${sheet.id}/values/A1:1`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = reasonFrom(await res.text().catch(() => ""));
+    throw new Error(`Couldn't read the Contacts sheet header (${res.status}).${detail}`);
+  }
+  const data = (await res.json()) as { values?: string[][] };
+  return { id: sheet.id, headers: (data.values?.[0] ?? []).map((h) => String(h)) };
+}
+
+export interface NewContact {
+  name: string;
+  company?: string;
+  email?: string;
+  title?: string;
+}
+
+/** Append a contact row, mapped to whatever headers the sheet actually has. */
+export async function appendContact(
+  token: string,
+  topFolderId: string,
+  contact: NewContact,
+  idFactory: () => string,
+): Promise<void> {
+  const { id: sheetId, headers } = await contactsSheet(token, topFolderId);
+  // Fill both `account` and `account_id` with the company so linking works
+  // regardless of which the sheet uses.
+  const byHeader: Record<string, string> = {
+    id: idFactory(),
+    name: contact.name,
+    title: contact.title ?? "",
+    company: contact.company ?? "",
+    account: contact.company ?? "",
+    account_id: contact.company ?? "",
+    email: contact.email ?? "",
+    status: "new",
+    notes: "",
+  };
+  const row = headers.map((h) => byHeader[h.trim().toLowerCase()] ?? "");
+  const res = await fetch(
+    `${SHEETS}/${sheetId}/values/${encodeURIComponent("A1")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ values: [row] }),
+    },
+  );
+  if (!res.ok) {
+    const detail = reasonFrom(await res.text().catch(() => ""));
+    throw new Error(`Couldn't add the contact (${res.status}).${detail}`);
+  }
+}
