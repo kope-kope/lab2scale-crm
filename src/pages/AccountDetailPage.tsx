@@ -5,7 +5,7 @@ import { Card, Table, type TableColumn, type TableRow } from "@/components/ds";
 import { ListState } from "@/components/ListState";
 import { useDriveData } from "@/data/DriveDataProvider";
 import { useAuth } from "@/auth/AuthProvider";
-import { listFolderFiles, type DriveFile } from "@/lib/drive";
+import { listFolderFiles, CONTEXT_DOC_PREFIX, type DriveFile } from "@/lib/drive";
 import { CONFIG } from "@/config";
 
 const CONTACT_COLUMNS: TableColumn[] = [
@@ -54,6 +54,7 @@ export function AccountDetailPage() {
   const contacts = (data?.contacts ?? []).filter(
     (c) => c.account === account?.name || c.company === account?.name,
   );
+  const contextDoc = (files ?? []).find((f) => f.name.startsWith(CONTEXT_DOC_PREFIX));
 
   if (!dataLoading && !account) {
     return (
@@ -81,6 +82,18 @@ export function AccountDetailPage() {
           </a>
         )}
       </header>
+
+      {contextDoc?.webViewLink && (
+        <a
+          href={contextDoc.webViewLink}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-6 inline-flex items-center gap-2 rounded-card border border-border bg-surface px-4 py-3 text-small text-action transition-colors ease-ds hover:border-border-hover"
+        >
+          <FileText size={16} strokeWidth={1.5} />
+          Open context document
+        </a>
+      )}
 
       <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Files">

@@ -148,7 +148,8 @@ async function createFolder(token: string, parentId: string, name: string): Prom
   return res.json() as Promise<DriveFile>;
 }
 
-/** Create a company folder inside Accounts/ (or Leads/). Returns the new folder. */
+/** Create a company folder inside Accounts/ (or Leads/). Returns the new folder.
+ *  For accounts, also seeds a context doc inside it (LAB-21). */
 export async function createCompanyFolder(
   token: string,
   topFolderId: string,
@@ -158,7 +159,78 @@ export async function createCompanyFolder(
   const areaName = area === "accounts" ? AREA_FOLDERS.accounts : AREA_FOLDERS.leads;
   const areaFolder = await findFolder(token, topFolderId, topFolderId, areaName);
   if (!areaFolder) throw new Error(`The ${areaName} folder isn't in Drive.`);
-  return createFolder(token, areaFolder.id, name.trim());
+  const folder = await createFolder(token, areaFolder.id, name.trim());
+  if (area === "accounts") {
+    await createContextDoc(token, folder.id, name.trim());
+  }
+  return folder;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** The seeded context-doc template (LAB-21). Sentence case, per the design voice. */
+export const CONTEXT_DOC_PREFIX = "Context —";
+
+function contextDocHtml(company: string): string {
+  const c = escapeHtml(company);
+  return [
+    `<h1>${c} — account context</h1>`,
+    `<p>A living space to capture how we're approaching this account. Edit freely.</p>`,
+    `<h2>Strategy for finding contacts</h2>`,
+    `<p>How we plan to source and reach the right people at this account.</p>`,
+    `<h2>Account background / overview</h2>`,
+    `<p>What the company does, and why it's a fit for the client.</p>`,
+    `<h2>Ideal contact profile</h2>`,
+    `<p>Titles, roles, and personas to target.</p>`,
+    `<h2>Outreach angle / positioning</h2>`,
+    `<p>The pitch or hook for this account.</p>`,
+    `<h2>Notes &amp; learnings</h2>`,
+    `<p>A running log of what's worked, blockers, and context.</p>`,
+  ].join("");
+}
+
+/**
+ * Create a formatted Google Doc inside the account folder, seeded from the
+ * template. Uploads HTML via a multipart Drive create and lets Drive convert it
+ * to a Doc — no separate Docs API scope needed.
+ */
+export async function createContextDoc(
+  token: string,
+  accountFolderId: string,
+  company: string,
+): Promise<DriveFile> {
+  const boundary = `l2s-${Date.now()}`;
+  const metadata = {
+    name: `${CONTEXT_DOC_PREFIX} ${company}`,
+    mimeType: "application/vnd.google-apps.document",
+    parents: [accountFolderId],
+  };
+  const body =
+    `--${boundary}\r\n` +
+    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+    `${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: text/html; charset=UTF-8\r\n\r\n` +
+    `${contextDocHtml(company)}\r\n` +
+    `--${boundary}--`;
+  const res = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,webViewLink",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  );
+  if (!res.ok) {
+    const detail = reasonFrom(await res.text().catch(() => ""));
+    throw new Error(`Account created, but the context doc failed (${res.status}).${detail}`);
+  }
+  return res.json() as Promise<DriveFile>;
 }
 
 /** Locate the Contacts sheet and read its header row (so appends map correctly). */
