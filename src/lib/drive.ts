@@ -79,6 +79,19 @@ async function exportCsv(token: string, fileId: string): Promise<string> {
   return res.text();
 }
 
+/** Export a Google Doc as plain text — used to feed the context doc to the AI finder. */
+export async function readContextDocText(token: string, docFileId: string): Promise<string> {
+  const res = await driveFetch(
+    `/files/${docFileId}/export?mimeType=${encodeURIComponent("text/plain")}`,
+    token,
+  );
+  if (!res.ok) {
+    const detail = reasonFrom(await res.text().catch(() => ""));
+    throw new Error(`Couldn't read the context document (${res.status}).${detail}`);
+  }
+  return res.text();
+}
+
 async function findFolder(
   token: string,
   driveId: string,
@@ -255,9 +268,13 @@ async function contactsSheet(
 
 export interface NewContact {
   name: string;
+  /** The contact's own employer (the target company). */
   company?: string;
+  /** The lab2scale account this contact belongs to. Defaults to `company`. */
+  account?: string;
   email?: string;
   title?: string;
+  notes?: string;
 }
 
 /** Append a contact row, mapped to whatever headers the sheet actually has. */
@@ -268,18 +285,19 @@ export async function appendContact(
   idFactory: () => string,
 ): Promise<void> {
   const { id: sheetId, headers } = await contactsSheet(token, topFolderId);
-  // Fill both `account` and `account_id` with the company so linking works
-  // regardless of which the sheet uses.
+  // `account` links the row to the account folder; `company` is the contact's
+  // own employer. When only company is given (manual add), they're the same.
+  const account = contact.account ?? contact.company ?? "";
   const byHeader: Record<string, string> = {
     id: idFactory(),
     name: contact.name,
     title: contact.title ?? "",
     company: contact.company ?? "",
-    account: contact.company ?? "",
-    account_id: contact.company ?? "",
+    account,
+    account_id: account,
     email: contact.email ?? "",
     status: "new",
-    notes: "",
+    notes: contact.notes ?? "",
   };
   const row = headers.map((h) => byHeader[h.trim().toLowerCase()] ?? "");
   const res = await fetch(

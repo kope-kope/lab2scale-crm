@@ -6,6 +6,7 @@ import { ListState } from "@/components/ListState";
 import { useDriveData } from "@/data/DriveDataProvider";
 import { useAuth } from "@/auth/AuthProvider";
 import { listFolderFiles, CONTEXT_DOC_PREFIX, type DriveFile } from "@/lib/drive";
+import { FindContactsPanel } from "@/components/FindContactsPanel";
 import { CONFIG } from "@/config";
 
 const CONTACT_COLUMNS: TableColumn[] = [
@@ -95,7 +96,13 @@ export function AccountDetailPage() {
         </a>
       )}
 
-      <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+      {account && (
+        <div className="mt-6">
+          <FindContactsPanel accountName={account.name} contextDoc={contextDoc} />
+        </div>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Files">
           <ListState
             loading={files === null && !filesError}
