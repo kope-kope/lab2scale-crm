@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Table, type TableColumn, type TableRow } from "@/components/ds";
 import { ListState } from "@/components/ListState";
+import { AddCompanyFolder } from "@/components/AddCompanyFolder";
 import { useDriveData } from "@/data/DriveDataProvider";
 
 const COLUMNS: TableColumn[] = [{ key: "account", label: "Account" }];
@@ -16,11 +17,14 @@ export function AccountsPage() {
 
   return (
     <div>
-      <header className="mb-8">
-        <h1 className="text-h1 font-medium text-black">Accounts</h1>
-        <p className="mt-2 text-muted">
-          Signed clients — one folder per company, read live from Drive.
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-h1 font-medium text-black">Accounts</h1>
+          <p className="mt-2 text-muted">
+            Signed clients — one folder per company, read live from Drive.
+          </p>
+        </div>
+        <AddCompanyFolder area="accounts" />
       </header>
 
       <ListState

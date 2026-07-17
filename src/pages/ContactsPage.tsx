@@ -1,5 +1,6 @@
 import { Table, type TableColumn, type TableRow } from "@/components/ds";
 import { ListState } from "@/components/ListState";
+import { AddContactForm } from "@/components/AddContactForm";
 import { useDriveData } from "@/data/DriveDataProvider";
 
 const COLUMNS: TableColumn[] = [
@@ -32,6 +33,10 @@ export function ContactsPage() {
         <h1 className="text-h1 font-medium text-black">Contacts</h1>
         <p className="mt-2 text-muted">People across your accounts, read live from Drive.</p>
       </header>
+
+      <div className="mb-6">
+        <AddContactForm />
+      </div>
 
       <ListState
         loading={loading}
