@@ -1,42 +1,41 @@
-/** Client for the AI contact finder endpoint (server-side Claude, LAB-22). */
+/** Client for the async AI contact finder (server-side Claude → per-account sheet). */
 import { CONFIG } from "@/config";
 
-export interface FoundContact {
-  name: string;
-  title: string;
-  company: string;
-  email?: string;
-  linkedin?: string;
-  rationale: string;
-}
-
-export interface FinderResult {
-  contacts: FoundContact[];
-  /** Present when the finder returned prose instead of a contact list. */
-  note?: string;
+export interface FinderStarted {
+  /** Link to the account's targets sheet where results will appear. */
+  sheetUrl: string;
+  message: string;
 }
 
 /**
- * Ask the server to find contacts for an account, driven by its context doc.
- * The Anthropic key lives server-side; we only send the account name and the
- * context text plus our Google token so the server can check the domain.
+ * Kick off a finder run for an account. The server creates/opens the account's
+ * targets sheet, returns its link immediately, and does the research in the
+ * background — results land in the sheet. We don't wait for contacts here.
  */
-export async function findContacts(
+export async function startFindContacts(
   token: string,
-  accountName: string,
-  contextText: string,
-): Promise<FinderResult> {
+  params: { accountName: string; accountFolderId: string; contextText: string },
+): Promise<FinderStarted> {
   const res = await fetch(`${CONFIG.apiBaseUrl}/api/find-contacts`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ accountName, contextText }),
+    body: JSON.stringify({
+      accountName: params.accountName,
+      accountFolderId: params.accountFolderId,
+      driveId: CONFIG.driveFolderId,
+      contextText: params.contextText,
+    }),
   });
-  const data = (await res.json().catch(() => ({}))) as FinderResult & { error?: string };
+  const data = (await res.json().catch(() => ({}))) as {
+    sheetUrl?: string;
+    message?: string;
+    error?: string;
+  };
   if (!res.ok) {
-    if (res.status === 504) {
-      throw new Error("The research took too long and timed out. Try again, or narrow the context.");
-    }
-    throw new Error(data.error || `The finder failed (${res.status}).`);
+    throw new Error(data.error || `Couldn't start the finder (${res.status}).`);
   }
-  return { contacts: data.contacts ?? [], note: data.note };
+  return {
+    sheetUrl: data.sheetUrl ?? "",
+    message: data.message ?? "Finding contacts — results will appear in the sheet shortly.",
+  };
 }
