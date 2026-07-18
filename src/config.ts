@@ -3,6 +3,10 @@ export const CONFIG = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) || "",
   allowedDomain: (import.meta.env.VITE_ALLOWED_DOMAIN as string) || "lab-2-scale.com",
   driveFolderId: (import.meta.env.VITE_DRIVE_FOLDER_ID as string) || "",
+  // Base URL for the API. Empty = same origin (dev via the vite proxy, or the
+  // single-container build). Set to the Railway URL when the API is hosted
+  // separately from the Vercel frontend. Trailing slash trimmed.
+  apiBaseUrl: ((import.meta.env.VITE_API_BASE_URL as string) || "").replace(/\/+$/, ""),
 };
 
 /**
