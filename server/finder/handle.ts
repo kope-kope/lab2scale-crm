@@ -55,7 +55,9 @@ export interface FinderRequest {
 
 /** Parse, authorize, and run the finder. Never throws — always returns a response. */
 export async function handleFindContacts(req: FinderRequest): Promise<FinderResponse> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Trim — a trailing newline or stray space in the env var (a classic hosting
+  // footgun) would otherwise reach Anthropic verbatim and 401 as "invalid key".
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) {
     return { status: 500, body: { error: "AI isn't configured yet — set ANTHROPIC_API_KEY on the server." } };
   }
@@ -73,7 +75,7 @@ export async function handleFindContacts(req: FinderRequest): Promise<FinderResp
   }
 
   try {
-    await verifyGoogleDomain(token, process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN);
+    await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
     const result = await findContacts(apiKey, accountName, contextText);
     return { status: 200, body: result };
   } catch (err) {
