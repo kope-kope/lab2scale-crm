@@ -74,13 +74,16 @@ function systemPrompt(): string {
     "You will be given the account's context document. Treat it as the complete brief: follow its",
     "ideal-contact profile, target companies, and outreach angle exactly. Do not go off-brief.",
     "",
-    "Use the web_search tool to find REAL, currently-employed people. Rules:",
-    "- Never invent a person, title, company, or email. If you can't verify someone is real, drop them.",
-    "- Only include an email if you found a genuine one; otherwise leave it empty.",
-    "- Prefer a LinkedIn URL as proof the person exists.",
-    "- Aim for quality over quantity: 5–10 well-matched, verified contacts is ideal.",
+    "Use the web_search tool aggressively to find REAL, currently-employed people. Rules:",
+    "- Cast a WIDE net. Work through every target company, tier, and persona in the brief, and run",
+    "  multiple searches per company. Aim for 20–30 well-matched contacts — more is better.",
+    "- Never invent a person, title, company, or email. If you can't verify someone is real, drop them —",
+    "  but a verifiable name + title + company is enough to include, even without an email.",
+    "- Only include an email if you found a genuine one; otherwise leave it empty. Prefer a LinkedIn URL",
+    "  as proof the person exists.",
+    "- Don't stop early. Keep searching across the full target list until you've exhausted good matches.",
     "",
-    "When your research is done, call submit_contacts exactly once with the results. Do not ask questions.",
+    "When your research is done, call submit_contacts exactly once with the full list. Do not ask questions.",
   ].join("\n");
 }
 
@@ -119,14 +122,15 @@ export async function findContacts(
   ];
 
   // Web search can pause the turn (pause_turn) for long agentic runs; resume
-  // until Claude either submits contacts or ends its turn.
-  for (let step = 0; step < 6; step++) {
+  // until Claude either submits contacts or ends its turn. Budgets are generous
+  // because the finder is async — nobody's waiting, so we let it dig deep.
+  for (let step = 0; step < 12; step++) {
     const stream = client.messages.stream({
       model: MODEL,
-      max_tokens: 8000,
+      max_tokens: 16000,
       thinking: { type: "adaptive" },
       system: systemPrompt(),
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 8 }, SUBMIT_TOOL],
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 20 }, SUBMIT_TOOL],
       messages,
     });
     const message = await stream.finalMessage();
