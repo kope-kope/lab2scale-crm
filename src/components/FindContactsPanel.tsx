@@ -1,17 +1,15 @@
 import { useState } from "react";
-import { Sparkles, ExternalLink } from "lucide-react";
+import { Sparkles, Users, ExternalLink } from "lucide-react";
 import { Button, Card } from "@/components/ds";
 import { useAuth } from "@/auth/AuthProvider";
 import { readContextDocText, type DriveFile } from "@/lib/drive";
-import { startFindContacts } from "@/lib/finder";
-
-type Phase = "idle" | "starting" | "started";
+import { startFindCompanies, startFindContacts, type FinderStarted } from "@/lib/finder";
 
 /**
- * The AI contact finder (LAB-22 / LAB-25). Reads the account's context doc and
- * kicks off a background research job on the server, which writes results into
- * the account's "targets" sheet. We don't wait for contacts — we hand back the
- * sheet link and let the research finish server-side.
+ * The two-stage AI finder (LAB-25/26/27).
+ *   Step 1 — find target companies → companies sheet (human marks "yes").
+ *   Step 2 — find contacts at the approved companies → contacts sheet.
+ * Both run in the background; we hand back the sheet link and let them fill in.
  */
 export function FindContactsPanel({
   accountName,
@@ -23,71 +21,78 @@ export function FindContactsPanel({
   contextDoc?: DriveFile;
 }) {
   const { token } = useAuth();
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [sheetUrl, setSheetUrl] = useState<string>("");
-  const [message, setMessage] = useState<string>("");
+  const [busy, setBusy] = useState<null | "companies" | "contacts">(null);
+  const [result, setResult] = useState<(FinderStarted & { kind: "companies" | "contacts" }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const canSearch = Boolean(contextDoc);
 
-  async function run() {
+  async function go(kind: "companies" | "contacts") {
     if (!token) return;
-    setPhase("starting");
+    setBusy(kind);
     setError(null);
     try {
       const contextText = contextDoc ? await readContextDocText(token, contextDoc.id) : "";
-      const res = await startFindContacts(token, { accountName, accountFolderId, contextText });
-      setSheetUrl(res.sheetUrl);
-      setMessage(res.message);
-      setPhase("started");
+      const params = { accountName, accountFolderId, contextText };
+      const res = kind === "companies"
+        ? await startFindCompanies(token, params)
+        : await startFindContacts(token, params);
+      setResult({ ...res, kind });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start the finder.");
-      setPhase("idle");
+    } finally {
+      setBusy(null);
     }
   }
 
   return (
     <Card title="Find contacts with AI">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-prose text-small text-muted">
-          {canSearch
-            ? "Reads this account's context document and researches real people to reach. Results are written to the account's targets sheet — this runs in the background and takes a few minutes."
-            : "Add a context document to this account first — the AI uses it to know who to look for."}
+      {!canSearch ? (
+        <p className="text-small text-muted">
+          Add a context document to this account first — the AI uses it to know who to look for.
         </p>
-        {canSearch && phase !== "started" && (
-          <Button onClick={() => void run()} disabled={phase === "starting"}>
-            <Sparkles size={16} strokeWidth={1.5} />
-            {phase === "starting" ? "Starting…" : "Find contacts"}
-          </Button>
-        )}
-      </div>
+      ) : (
+        <>
+          <p className="max-w-prose text-small text-muted">
+            Two steps. First find target <strong>companies</strong> from the context document and mark
+            the ones to pursue with <strong>“yes”</strong> in the sheet. Then find <strong>contacts</strong>{" "}
+            at the approved companies. Both run in the background and write to a sheet.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={() => void go("companies")} disabled={busy !== null}>
+              <Sparkles size={16} strokeWidth={1.5} />
+              {busy === "companies" ? "Starting…" : "1 · Find target companies"}
+            </Button>
+            <Button variant="secondary" onClick={() => void go("contacts")} disabled={busy !== null}>
+              <Users size={16} strokeWidth={1.5} />
+              {busy === "contacts" ? "Starting…" : "2 · Find contacts for approved"}
+            </Button>
+          </div>
+        </>
+      )}
 
       {error && <p className="mt-4 text-small text-danger-text">{error}</p>}
 
-      {phase === "started" && (
+      {result && (
         <div className="mt-4 rounded-card border border-border bg-surface p-4">
-          <p className="text-small text-body">{message}</p>
-          {sheetUrl && (
+          <p className="text-small text-body">{result.message}</p>
+          {result.sheetUrl && (
             <a
-              href={sheetUrl}
+              href={result.sheetUrl}
               target="_blank"
               rel="noreferrer"
               className="mt-2 inline-flex items-center gap-1.5 text-small text-action"
             >
               <ExternalLink size={16} strokeWidth={1.5} />
-              Open the targets sheet
+              Open the {result.kind} sheet
             </a>
           )}
           <p className="mt-3 text-small text-muted">
-            The sheet shows a status row (Running… → Done) — refresh it in a few minutes. You can run
-            this again anytime; it refreshes the same sheet.
+            The sheet’s top row shows status (Running… → Done). Refresh it in a few minutes.
+            {result.kind === "companies" &&
+              " Then type “yes” in the Approve column and run step 2."}
           </p>
-          <button
-            onClick={() => setPhase("idle")}
-            className="mt-3 text-small text-muted underline-offset-2 hover:underline"
-          >
-            Run again
-          </button>
         </div>
       )}
     </Card>

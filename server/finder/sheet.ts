@@ -1,17 +1,24 @@
 import type { FoundContact } from "./findContacts.js";
+import type { FoundCompany } from "./findCompanies.js";
 
 /**
- * Server-side Google Drive + Sheets writes for the async finder. The finder
- * runs detached (the browser isn't waiting), so results and run status are
- * written into a per-account "targets" sheet in the account's Drive folder.
- * Everything is done as the signed-in user, using their access token.
+ * Server-side Google Drive + Sheets writes for the async finder, done as the
+ * signed-in user. Each account gets two sheets in its Drive folder:
+ *
+ *   "<Company> — companies"  Stage 1 output; a human marks the Approve column.
+ *   "<Company> — contacts"   Stage 2 output; people at the approved companies.
+ *
+ * Both carry a run-status row (A1:B1) so a background run reports Running →
+ * Done / Failed without the browser waiting.
  */
 
 const DRIVE = "https://www.googleapis.com/drive/v3";
 const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets";
 const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 
-const HEADER = ["Name", "Title", "Company", "Email", "LinkedIn", "Rationale"];
+const COMPANY_HEADER = ["Company", "Rationale", "Tier", "Approve? (type yes)"];
+const CONTACT_HEADER = ["Name", "Title", "Company", "Email", "LinkedIn", "Rationale"];
+const APPROVED = new Set(["yes", "y", "approved", "true", "✓", "x"]);
 
 function reasonFrom(body: string): string {
   try {
@@ -38,23 +45,23 @@ async function google(url: string, token: string, init?: RequestInit): Promise<u
   return res.json();
 }
 
-export interface TargetsSheet {
+export interface Sheet {
   id: string;
   url: string;
   created: boolean;
 }
 
-/**
- * Find the account's "<Company> — targets" sheet, or create it in the account
- * folder. `driveId` is the Shared Drive id (needed to scope the lookup).
- */
-export async function findOrCreateTargetsSheet(
+function sheetUrl(id: string): string {
+  return `https://docs.google.com/spreadsheets/d/${id}/edit`;
+}
+
+/** Find a sheet by exact name in the account folder, or create it there. */
+export async function findOrCreateSheet(
   token: string,
   driveId: string,
   accountFolderId: string,
-  accountName: string,
-): Promise<TargetsSheet> {
-  const name = `${accountName} — targets`;
+  name: string,
+): Promise<Sheet> {
   const q =
     `'${accountFolderId}' in parents and name = '${name.replace(/'/g, "\\'")}' ` +
     `and mimeType = '${SHEET_MIME}' and trashed = false`;
@@ -74,43 +81,82 @@ export async function findOrCreateTargetsSheet(
   if (existing) {
     return { id: existing.id, url: existing.webViewLink ?? sheetUrl(existing.id), created: false };
   }
-
-  const created = (await google(
-    `${DRIVE}/files?supportsAllDrives=true&fields=id,webViewLink`,
-    token,
-    { method: "POST", body: JSON.stringify({ name, mimeType: SHEET_MIME, parents: [accountFolderId] }) },
-  )) as { id: string; webViewLink?: string };
+  const created = (await google(`${DRIVE}/files?supportsAllDrives=true&fields=id,webViewLink`, token, {
+    method: "POST",
+    body: JSON.stringify({ name, mimeType: SHEET_MIME, parents: [accountFolderId] }),
+  })) as { id: string; webViewLink?: string };
   return { id: created.id, url: created.webViewLink ?? sheetUrl(created.id), created: true };
 }
 
-function sheetUrl(id: string): string {
-  return `https://docs.google.com/spreadsheets/d/${id}/edit`;
+export function companiesSheetName(accountName: string): string {
+  return `${accountName} — companies`;
+}
+export function contactsSheetName(accountName: string): string {
+  return `${accountName} — contacts`;
 }
 
-/** Write the run status into A1:B1 (e.g. "Running…", "Done — 8 contacts", "Failed: …"). */
+/** Write the run status into A1:B1 (Running… / Done / Failed). */
 export async function writeStatus(token: string, sheetId: string, status: string): Promise<void> {
-  await google(
-    `${SHEETS}/${sheetId}/values/${encodeURIComponent("A1:B1")}?valueInputOption=RAW`,
-    token,
-    { method: "PUT", body: JSON.stringify({ values: [["Status", status]] }) },
-  );
+  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A1:B1")}?valueInputOption=RAW`, token, {
+    method: "PUT",
+    body: JSON.stringify({ values: [["Run", status]] }),
+  });
 }
 
-/**
- * Replace the contacts area with the latest results: clears the old rows, then
- * writes the header at row 3 and the contacts below it. Status row (1) is left
- * intact.
- */
+async function clearAndWrite(
+  token: string,
+  sheetId: string,
+  clearRange: string,
+  header: string[],
+  rows: string[][],
+): Promise<void> {
+  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent(clearRange)}:clear`, token, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}?valueInputOption=RAW`, token, {
+    method: "PUT",
+    body: JSON.stringify({ values: [header, ...rows] }),
+  });
+}
+
+/** Stage 1: write companies with an empty Approve column for the human. */
+export async function writeCompanies(
+  token: string,
+  sheetId: string,
+  companies: FoundCompany[],
+): Promise<void> {
+  const rows = companies.map((c) => [c.company, c.rationale, c.tier ?? "", ""]);
+  await clearAndWrite(token, sheetId, "A3:D1000", COMPANY_HEADER, rows);
+}
+
+/** Read the companies sheet and return the companies whose Approve cell is set. */
+export async function readApprovedCompanies(token: string, sheetId: string): Promise<string[]> {
+  const data = (await google(
+    `${SHEETS}/${sheetId}/values/${encodeURIComponent("A3:D1000")}`,
+    token,
+  )) as { values?: string[][] };
+  const rows = data.values ?? [];
+  if (rows.length < 2) return [];
+  const header = rows[0].map((h) => String(h).trim().toLowerCase());
+  const companyCol = header.findIndex((h) => h.includes("company"));
+  const approveCol = header.findIndex((h) => h.includes("approve"));
+  if (companyCol < 0 || approveCol < 0) return [];
+  const out: string[] = [];
+  for (const row of rows.slice(1)) {
+    const company = (row[companyCol] ?? "").trim();
+    const approve = (row[approveCol] ?? "").trim().toLowerCase();
+    if (company && APPROVED.has(approve)) out.push(company);
+  }
+  return out;
+}
+
+/** Stage 2: write the found contacts (replacing any prior rows). */
 export async function writeContacts(
   token: string,
   sheetId: string,
   contacts: FoundContact[],
 ): Promise<void> {
-  // Clear any prior contacts so a re-run doesn't leave stale rows behind.
-  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3:F1000")}:clear`, token, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
   const rows = contacts.map((c) => [
     c.name,
     c.title,
@@ -119,9 +165,5 @@ export async function writeContacts(
     c.linkedin ?? "",
     c.rationale,
   ]);
-  await google(
-    `${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}?valueInputOption=RAW`,
-    token,
-    { method: "PUT", body: JSON.stringify({ values: [HEADER, ...rows] }) },
-  );
+  await clearAndWrite(token, sheetId, "A3:F1000", CONTACT_HEADER, rows);
 }

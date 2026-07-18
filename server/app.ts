@@ -2,7 +2,7 @@ import express, { type RequestHandler } from "express";
 import compression from "compression";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { handleFindContacts } from "./finder/handle.js";
+import { handleFindCompanies, handleFindContacts, type FinderRequest, type FinderResponse } from "./finder/handle.js";
 import { corsMiddleware } from "./http/cors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,28 +29,33 @@ export function createApp(requireAuth: RequestHandler) {
     res.json({ ok: true, service: "lab2scale-crm", env: isProd ? "prod" : "dev" });
   });
 
-  // AI contact finder (async). Validates + creates the sheet, replies fast with
-  // its link, then runs the research in the background and writes results into
-  // the sheet. Runs its own Google-domain check, so it lives before the gate.
-  api.post("/find-contacts", (req, res) => {
-    handleFindContacts({ authHeader: req.headers.authorization, body: req.body })
-      .then(({ status, body, run }) => {
-        res.status(status).json(body);
-        // Fire-and-forget the background job; it writes its own failure into the
-        // sheet, so a rejection here just needs logging.
-        if (run) {
-          void run().catch((err) => {
-            // eslint-disable-next-line no-console
-            console.error("[finder] background job failed:", err);
-          });
-        }
-      })
-      .catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error("[finder] failed to start:", err);
-        if (!res.headersSent) res.status(500).json({ error: "Something went wrong starting the finder." });
-      });
-  });
+  // AI finder (async, two stages). Each validates + creates its sheet, replies
+  // fast with the link, then runs the research in the background and writes into
+  // the sheet. Both run their own Google-domain check, so they sit before the gate.
+  const asyncFinder =
+    (handler: (r: FinderRequest) => Promise<FinderResponse>): RequestHandler =>
+    (req, res) => {
+      handler({ authHeader: req.headers.authorization, body: req.body })
+        .then(({ status, body, run }) => {
+          res.status(status).json(body);
+          // Fire-and-forget; the job writes its own failure into the sheet, so a
+          // rejection here just needs logging.
+          if (run) {
+            void run().catch((e) => {
+              // eslint-disable-next-line no-console
+              console.error("[finder] background job failed:", e);
+            });
+          }
+        })
+        .catch((e) => {
+          // eslint-disable-next-line no-console
+          console.error("[finder] failed to start:", e);
+          if (!res.headersSent) res.status(500).json({ error: "Something went wrong starting the finder." });
+        });
+    };
+
+  api.post("/find-companies", asyncFinder(handleFindCompanies)); // Stage 1
+  api.post("/find-contacts", asyncFinder(handleFindContacts)); // Stage 2
 
   // The gate. Every route below this line requires a verified, allowed account.
   api.use(requireAuth);
