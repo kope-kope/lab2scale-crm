@@ -29,13 +29,27 @@ export function createApp(requireAuth: RequestHandler) {
     res.json({ ok: true, service: "lab2scale-crm", env: isProd ? "prod" : "dev" });
   });
 
-  // AI contact finder. Mirrors the Vercel serverless function so local dev
-  // works through the vite proxy. It runs its own Google-domain check on the
-  // bearer token, so it lives before the ID-token gate below.
+  // AI contact finder (async). Validates + creates the sheet, replies fast with
+  // its link, then runs the research in the background and writes results into
+  // the sheet. Runs its own Google-domain check, so it lives before the gate.
   api.post("/find-contacts", (req, res) => {
-    void handleFindContacts({ authHeader: req.headers.authorization, body: req.body }).then(
-      ({ status, body }) => res.status(status).json(body),
-    );
+    handleFindContacts({ authHeader: req.headers.authorization, body: req.body })
+      .then(({ status, body, run }) => {
+        res.status(status).json(body);
+        // Fire-and-forget the background job; it writes its own failure into the
+        // sheet, so a rejection here just needs logging.
+        if (run) {
+          void run().catch((err) => {
+            // eslint-disable-next-line no-console
+            console.error("[finder] background job failed:", err);
+          });
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[finder] failed to start:", err);
+        if (!res.headersSent) res.status(500).json({ error: "Something went wrong starting the finder." });
+      });
   });
 
   // The gate. Every route below this line requires a verified, allowed account.
