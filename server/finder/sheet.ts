@@ -51,6 +51,20 @@ export interface Sheet {
   created: boolean;
 }
 
+/**
+ * Export a context Google Doc as plain text (server-side, in the background job)
+ * so it's off the click's critical path. Non-fatal: on failure we proceed with
+ * empty context rather than aborting the run.
+ */
+export async function readContextDocText(token: string, docId: string): Promise<string> {
+  if (!docId) return "";
+  const res = await fetch(`${DRIVE}/files/${docId}/export?mimeType=${encodeURIComponent("text/plain")}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return "";
+  return res.text();
+}
+
 function sheetUrl(id: string): string {
   return `https://docs.google.com/spreadsheets/d/${id}/edit`;
 }

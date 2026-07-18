@@ -10,7 +10,8 @@ export interface FinderStarted {
 export interface FinderParams {
   accountName: string;
   accountFolderId: string;
-  contextText: string;
+  /** Context doc id — the server reads it in the background, off the click path. */
+  contextDocId?: string;
 }
 
 async function start(path: string, token: string, params: FinderParams): Promise<FinderStarted> {
@@ -21,7 +22,7 @@ async function start(path: string, token: string, params: FinderParams): Promise
       accountName: params.accountName,
       accountFolderId: params.accountFolderId,
       driveId: CONFIG.driveFolderId,
-      contextText: params.contextText,
+      contextDocId: params.contextDocId ?? "",
     }),
   });
   const data = (await res.json().catch(() => ({}))) as {

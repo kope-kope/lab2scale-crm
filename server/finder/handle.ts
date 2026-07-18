@@ -9,6 +9,7 @@ import {
   writeCompanies,
   writeContacts,
   readApprovedCompanies,
+  readContextDocText,
 } from "./sheet.js";
 
 /**
@@ -50,7 +51,8 @@ interface Parsed {
   accountName: string;
   accountFolderId: string;
   driveId: string;
-  contextText: string;
+  /** Context doc id — read server-side in the background, off the click path. */
+  contextDocId: string;
 }
 
 interface GoogleUserInfo {
@@ -77,12 +79,12 @@ function parse(req: FinderRequest): { ok: true; v: Parsed } | { ok: false; res: 
   const accountName = str("accountName");
   const accountFolderId = str("accountFolderId");
   const driveId = str("driveId");
-  const contextText = typeof body.contextText === "string" ? body.contextText : "";
+  const contextDocId = str("contextDocId");
   if (!accountName) return err(400, "Missing account name.");
   if (!accountFolderId) return err(400, "Missing account folder id.");
   if (!driveId) return err(400, "Missing drive id.");
 
-  return { ok: true, v: { apiKey, token, accountName, accountFolderId, driveId, contextText } };
+  return { ok: true, v: { apiKey, token, accountName, accountFolderId, driveId, contextDocId } };
 }
 
 function err(status: number, message: string): { ok: false; res: FinderResponse } {
@@ -123,15 +125,18 @@ function failureReason(e: unknown): string {
 export async function handleFindCompanies(req: FinderRequest): Promise<FinderResponse> {
   const parsed = parse(req);
   if (!parsed.ok) return parsed.res;
-  const { apiKey, token, accountName, accountFolderId, driveId, contextText } = parsed.v;
+  const { apiKey, token, accountName, accountFolderId, driveId, contextDocId } = parsed.v;
 
   try {
     await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
+    // Only create the sheet synchronously — everything else runs in the
+    // background, so the click returns as soon as we have the link.
     const sheet = await findOrCreateSheet(token, driveId, accountFolderId, companiesSheetName(accountName));
-    await writeStatus(token, sheet.id, `Running… finding target companies (started ${nowStamp()})`);
 
     const run = async () => {
       try {
+        await writeStatus(token, sheet.id, `Running… finding target companies (started ${nowStamp()})`);
+        const contextText = await readContextDocText(token, contextDocId);
         const { companies, note } = await findCompanies(apiKey, accountName, contextText);
         await writeCompanies(token, sheet.id, companies);
         const summary = companies.length
@@ -163,12 +168,13 @@ export async function handleFindCompanies(req: FinderRequest): Promise<FinderRes
 export async function handleFindContacts(req: FinderRequest): Promise<FinderResponse> {
   const parsed = parse(req);
   if (!parsed.ok) return parsed.res;
-  const { apiKey, token, accountName, accountFolderId, driveId, contextText } = parsed.v;
+  const { apiKey, token, accountName, accountFolderId, driveId, contextDocId } = parsed.v;
 
   try {
     await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
 
-    // Read the approved companies from Stage 1's sheet.
+    // Read the approved companies from Stage 1's sheet — this must be sync so we
+    // can tell the user immediately if nothing's approved yet.
     const companiesSheet = await findOrCreateSheet(
       token,
       driveId,
@@ -187,14 +193,15 @@ export async function handleFindContacts(req: FinderRequest): Promise<FinderResp
     }
 
     const sheet = await findOrCreateSheet(token, driveId, accountFolderId, contactsSheetName(accountName));
-    await writeStatus(
-      token,
-      sheet.id,
-      `Running… finding contacts at ${approved.length} approved companies (started ${nowStamp()})`,
-    );
 
     const run = async () => {
       try {
+        await writeStatus(
+          token,
+          sheet.id,
+          `Running… finding contacts at ${approved.length} approved companies (started ${nowStamp()})`,
+        );
+        const contextText = await readContextDocText(token, contextDocId);
         const { contacts, note } = await findContacts(apiKey, accountName, contextText, approved);
         await writeContacts(token, sheet.id, contacts);
         const summary = contacts.length

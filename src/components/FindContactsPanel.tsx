@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Sparkles, Users, ExternalLink } from "lucide-react";
 import { Button, Card } from "@/components/ds";
 import { useAuth } from "@/auth/AuthProvider";
-import { readContextDocText, type DriveFile } from "@/lib/drive";
+import { type DriveFile } from "@/lib/drive";
 import { startFindCompanies, startFindContacts, type FinderStarted } from "@/lib/finder";
 
 /**
@@ -32,8 +32,7 @@ export function FindContactsPanel({
     setBusy(kind);
     setError(null);
     try {
-      const contextText = contextDoc ? await readContextDocText(token, contextDoc.id) : "";
-      const params = { accountName, accountFolderId, contextText };
+      const params = { accountName, accountFolderId, contextDocId: contextDoc?.id };
       const res = kind === "companies"
         ? await startFindCompanies(token, params)
         : await startFindContacts(token, params);
