@@ -16,5 +16,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["vite.config.ts", "server", "scripts", "shared"]
+  "include": ["vite.config.ts", "server", "scripts", "shared", "api"]
 }

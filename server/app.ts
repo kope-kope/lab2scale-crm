@@ -2,6 +2,7 @@ import express, { type RequestHandler } from "express";
 import compression from "compression";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { handleFindContacts } from "./finder/handle.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProd = process.env.NODE_ENV === "production";
@@ -21,6 +22,15 @@ export function createApp(requireAuth: RequestHandler) {
   // Open: liveness probe, no auth. Must be declared before the gate.
   api.get("/health", (_req, res) => {
     res.json({ ok: true, service: "lab2scale-crm", env: isProd ? "prod" : "dev" });
+  });
+
+  // AI contact finder. Mirrors the Vercel serverless function so local dev
+  // works through the vite proxy. It runs its own Google-domain check on the
+  // bearer token, so it lives before the ID-token gate below.
+  api.post("/find-contacts", (req, res) => {
+    void handleFindContacts({ authHeader: req.headers.authorization, body: req.body }).then(
+      ({ status, body }) => res.status(status).json(body),
+    );
   });
 
   // The gate. Every route below this line requires a verified, allowed account.
