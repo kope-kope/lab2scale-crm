@@ -1,4 +1,5 @@
 /** Client for the AI contact finder endpoint (server-side Claude, LAB-22). */
+import { CONFIG } from "@/config";
 
 export interface FoundContact {
   name: string;
@@ -25,13 +26,16 @@ export async function findContacts(
   accountName: string,
   contextText: string,
 ): Promise<FinderResult> {
-  const res = await fetch("/api/find-contacts", {
+  const res = await fetch(`${CONFIG.apiBaseUrl}/api/find-contacts`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ accountName, contextText }),
   });
   const data = (await res.json().catch(() => ({}))) as FinderResult & { error?: string };
   if (!res.ok) {
+    if (res.status === 504) {
+      throw new Error("The research took too long and timed out. Try again, or narrow the context.");
+    }
     throw new Error(data.error || `The finder failed (${res.status}).`);
   }
   return { contacts: data.contacts ?? [], note: data.note };
