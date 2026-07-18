@@ -35,7 +35,17 @@ async function verifyGoogleDomain(accessToken: string, allowedDomain: string): P
   const info = (await res.json()) as GoogleUserInfo;
   const verified = info.email_verified === true || info.email_verified === "true";
   if (info.hd !== allowedDomain || !verified) {
-    throw new HttpError(403, "This tool is only available to lab-2-scale.com accounts.");
+    // Self-revealing: name what the server saw vs. what it expects, so a
+    // frontend/server domain-config mismatch is obvious instead of a dead end.
+    const who = info.email || "This account";
+    const seen = info.hd
+      ? `a "${info.hd}" account`
+      : "a personal account (no Workspace domain)";
+    throw new HttpError(
+      403,
+      `${who} is ${seen}, but this server only allows "${allowedDomain}". ` +
+        `If that's wrong, fix ALLOWED_DOMAIN on the server (Railway).`,
+    );
   }
 }
 
