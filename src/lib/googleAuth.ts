@@ -8,11 +8,28 @@ import { CONFIG, GOOGLE_SCOPES } from "@/config";
 
 interface TokenResponse {
   access_token?: string;
+  /** Space-separated list of scopes the user actually granted. */
+  scope?: string;
   error?: string;
   error_description?: string;
 }
 interface TokenClient {
   requestAccessToken: (overrides?: { prompt?: string }) => void;
+}
+
+/**
+ * The API scopes the app can't work without. Google lets users untick these on
+ * the consent screen ("granular permissions"), which yields a token that 403s
+ * with "insufficient authentication scopes". We check for them after sign-in.
+ */
+const REQUIRED_SCOPES = [
+  "https://www.googleapis.com/auth/drive",
+  "https://www.googleapis.com/auth/spreadsheets",
+];
+
+export function hasRequiredScopes(granted: string | undefined): boolean {
+  const set = new Set((granted ?? "").split(" ").filter(Boolean));
+  return REQUIRED_SCOPES.every((s) => set.has(s));
 }
 interface GoogleGsi {
   accounts: {
@@ -51,25 +68,33 @@ export function loadGis(): Promise<void> {
   return gsiPromise;
 }
 
+export interface AccessGrant {
+  accessToken: string;
+  /** The scopes actually granted, so callers can verify Drive/Sheets are present. */
+  scope: string;
+}
+
 /**
- * Prompts the user (must be called from a click) and resolves with an access
- * token. Rejects if the user cancels or Google returns an error.
+ * Prompts the user (must be called from a click) and resolves with the access
+ * token + granted scopes. `forceConsent` re-shows the consent screen (with the
+ * permission checkboxes) even if Google would otherwise reuse a prior grant —
+ * used to let someone re-grant a scope they previously declined.
  */
-export async function requestAccessToken(): Promise<string> {
+export async function requestAccessToken(opts?: { forceConsent?: boolean }): Promise<AccessGrant> {
   await loadGis();
   const google = window.google;
   if (!google) throw new Error("Google Sign-In unavailable");
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<AccessGrant>((resolve, reject) => {
     const client = google.accounts.oauth2.initTokenClient({
       client_id: CONFIG.googleClientId,
       scope: GOOGLE_SCOPES,
       callback: (resp) => {
-        if (resp.access_token) resolve(resp.access_token);
+        if (resp.access_token) resolve({ accessToken: resp.access_token, scope: resp.scope ?? "" });
         else reject(new Error(resp.error_description || resp.error || "Sign-in failed"));
       },
       error_callback: (err) => reject(new Error(err.type || "Sign-in cancelled")),
     });
-    client.requestAccessToken();
+    client.requestAccessToken(opts?.forceConsent ? { prompt: "consent" } : undefined);
   });
 }
 
