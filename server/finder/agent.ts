@@ -26,6 +26,8 @@ export async function runResearchAgent(opts: {
   system: string;
   user: string;
   submitTool: Anthropic.Tool;
+  /** Web-search cap for this run. Smaller for focused per-company passes. */
+  maxSearches?: number;
 }): Promise<AgentResult> {
   const client = new Anthropic({ apiKey: opts.apiKey });
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: opts.user }];
@@ -37,7 +39,7 @@ export async function runResearchAgent(opts: {
       thinking: { type: "adaptive" },
       system: opts.system,
       tools: [
-        { type: "web_search_20260209", name: "web_search", max_uses: MAX_WEB_SEARCHES },
+        { type: "web_search_20260209", name: "web_search", max_uses: opts.maxSearches ?? MAX_WEB_SEARCHES },
         opts.submitTool,
       ],
       messages,
