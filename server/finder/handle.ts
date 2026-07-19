@@ -1,13 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { findCompanies } from "./findCompanies.js";
-import { findContacts } from "./findContacts.js";
+import { findContactsForCompany } from "./findContacts.js";
 import {
   findOrCreateSheet,
   companiesSheetName,
   contactsSheetName,
   writeStatus,
   appendCompanies,
-  writeContacts,
+  resetContactsSheet,
+  appendContacts,
   readAllCompanies,
   readApprovedCompanies,
 } from "./sheet.js";
@@ -203,12 +204,26 @@ export async function handleFindContacts(req: FinderRequest): Promise<FinderResp
 
     const run = async () => {
       try {
-        const { contacts, note } = await findContacts(apiKey, accountName, contextText, approved);
-        await writeContacts(token, sheet.id, contacts);
-        const summary = contacts.length
-          ? `Done — ${contacts.length} contacts across ${approved.length} companies (${nowStamp()})`
-          : `Done — no contacts found${note ? `: ${note}` : ""} (${nowStamp()})`;
-        await writeStatus(token, sheet.id, summary);
+        // Focus on one company at a time — deeper, better-targeted results, and
+        // the sheet fills in company-by-company instead of all-at-the-end.
+        await resetContactsSheet(token, sheet.id);
+        let total = 0;
+        for (let i = 0; i < approved.length; i++) {
+          const company = approved[i];
+          await writeStatus(
+            token,
+            sheet.id,
+            `Running… ${i}/${approved.length} companies done — now searching ${company} (${total} contacts so far)`,
+          );
+          const { contacts } = await findContactsForCompany(apiKey, accountName, contextText, company);
+          await appendContacts(token, sheet.id, contacts);
+          total += contacts.length;
+        }
+        await writeStatus(
+          token,
+          sheet.id,
+          `Done — ${total} contacts across ${approved.length} companies (${nowStamp()})`,
+        );
       } catch (e) {
         await writeStatus(token, sheet.id, `Failed: ${failureReason(e)} (${nowStamp()})`).catch(() => {});
         throw e;

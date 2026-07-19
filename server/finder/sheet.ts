@@ -111,23 +111,6 @@ async function readValues(token: string, sheetId: string, range: string): Promis
   return data.values ?? [];
 }
 
-async function clearAndWrite(
-  token: string,
-  sheetId: string,
-  clearRange: string,
-  header: string[],
-  rows: string[][],
-): Promise<void> {
-  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent(clearRange)}:clear`, token, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}?valueInputOption=RAW`, token, {
-    method: "PUT",
-    body: JSON.stringify({ values: [header, ...rows] }),
-  });
-}
-
 /** Ensure the company header sits at row 3 (first run creates it). */
 async function ensureCompanyHeader(token: string, sheetId: string): Promise<void> {
   const head = await readValues(token, sheetId, "A3:D3");
@@ -188,12 +171,25 @@ export async function readApprovedCompanies(token: string, sheetId: string): Pro
   return readCompanyColumn(await readValues(token, sheetId, "A3:D1000"), (a) => APPROVED.has(a));
 }
 
-/** Stage 2: write the found contacts (replacing any prior rows). */
-export async function writeContacts(
+/** Stage 2: start a fresh contacts sheet (clear + header) before the per-company run. */
+export async function resetContactsSheet(token: string, sheetId: string): Promise<void> {
+  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3:F1000")}:clear`, token, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}?valueInputOption=RAW`, token, {
+    method: "PUT",
+    body: JSON.stringify({ values: [CONTACT_HEADER] }),
+  });
+}
+
+/** Stage 2: append one company's contacts as they're found (incremental progress). */
+export async function appendContacts(
   token: string,
   sheetId: string,
   contacts: FoundContact[],
 ): Promise<void> {
+  if (!contacts.length) return;
   const rows = contacts.map((c) => [
     c.name,
     c.title,
@@ -202,5 +198,9 @@ export async function writeContacts(
     c.linkedin ?? "",
     c.rationale,
   ]);
-  await clearAndWrite(token, sheetId, "A3:F1000", CONTACT_HEADER, rows);
+  await google(
+    `${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    token,
+    { method: "POST", body: JSON.stringify({ values: rows }) },
+  );
 }

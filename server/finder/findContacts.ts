@@ -58,21 +58,24 @@ export interface FindContactsResult {
   note?: string;
 }
 
-export async function findContacts(
+/** Find the right people at ONE company (a focused, deep pass). */
+export async function findContactsForCompany(
   apiKey: string,
   accountName: string,
   contextText: string,
-  companies: string[],
+  company: string,
 ): Promise<FindContactsResult> {
   const { input, note } = await runResearchAgent({
     apiKey,
     system: contactsSystemPrompt(),
-    user: contactsUserPrompt(accountName, contextText, companies),
+    user: contactsUserPrompt(accountName, contextText, company),
     submitTool: SUBMIT_CONTACTS,
+    maxSearches: 6, // focused on one company — no need for the wide budget
   });
   if (!input) return { contacts: [], note };
   const contacts = (input.contacts as FoundContact[] | undefined) ?? [];
-  return { contacts: sanitize(contacts) };
+  // Stamp the company so a mis-labelled result still lands under the right one.
+  return { contacts: sanitize(contacts).map((c) => ({ ...c, company: c.company || company })) };
 }
 
 function sanitize(contacts: FoundContact[]): FoundContact[] {
