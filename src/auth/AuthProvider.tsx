@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   getUserInfo,
+  hasRequiredScopes,
   isAllowed,
   requestAccessToken,
   type UserInfo,
@@ -25,7 +26,9 @@ interface AuthState {
   user: UserInfo | null;
   token: string | null;
   message: string | null;
-  signIn: () => Promise<void>;
+  /** True when the denial was a missing Drive/Sheets scope (offer a re-grant). */
+  scopeDenied: boolean;
+  signIn: (opts?: { forceConsent?: boolean }) => Promise<void>;
   signOut: () => void;
 }
 
@@ -36,12 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [scopeDenied, setScopeDenied] = useState(false);
 
-  const signIn = useCallback(async () => {
+  const signIn = useCallback(async (opts?: { forceConsent?: boolean }) => {
     setStatus("authenticating");
     setMessage(null);
+    setScopeDenied(false);
     try {
-      const accessToken = await requestAccessToken();
+      const { accessToken, scope } = await requestAccessToken(opts);
       const info = await getUserInfo(accessToken);
       if (!isAllowed(info)) {
         setUser(null);
@@ -49,6 +54,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus("denied");
         setMessage(
           `${info.email || "That account"} isn't a lab-2-scale.com account. Sign in with your lab-2-scale.com email.`,
+        );
+        return;
+      }
+      if (!hasRequiredScopes(scope)) {
+        // Signed in, but declined the Drive/Sheets permission — the app can't
+        // read or write Drive. Guide them to re-grant instead of a silent 403.
+        setUser(null);
+        setToken(null);
+        setStatus("denied");
+        setScopeDenied(true);
+        setMessage(
+          "You're signed in, but Google Drive access wasn't granted. Click “Grant Drive access” and leave every permission checked (Drive and Sheets).",
         );
         return;
       }
@@ -69,8 +86,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ status, user, token, message, signIn, signOut }),
-    [status, user, token, message, signIn, signOut],
+    () => ({ status, user, token, message, scopeDenied, signIn, signOut }),
+    [status, user, token, message, scopeDenied, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
