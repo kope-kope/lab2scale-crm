@@ -6,8 +6,9 @@ import {
   companiesSheetName,
   contactsSheetName,
   writeStatus,
-  writeCompanies,
+  appendCompanies,
   writeContacts,
+  readAllCompanies,
   readApprovedCompanies,
 } from "./sheet.js";
 
@@ -132,11 +133,18 @@ export async function handleFindCompanies(req: FinderRequest): Promise<FinderRes
 
     const run = async () => {
       try {
-        const { companies, note } = await findCompanies(apiKey, accountName, contextText);
-        await writeCompanies(token, sheet.id, companies);
+        // Dedup: exclude companies already on the sheet, and append (not replace)
+        // so re-running adds new ones while keeping existing rows + Approve marks.
+        const existing = await readAllCompanies(token, sheet.id);
+        const { companies, note } = await findCompanies(apiKey, accountName, contextText, existing);
+        await appendCompanies(token, sheet.id, companies);
+        const total = existing.length + companies.length;
+        const noun = companies.length === 1 ? "company" : "companies";
         const summary = companies.length
-          ? `Done — ${companies.length} companies. Mark the ones to pursue with "yes" in the Approve column, then run Step 2. (${nowStamp()})`
-          : `Done — no companies found${note ? `: ${note}` : ""} (${nowStamp()})`;
+          ? `Done — added ${companies.length} new ${noun} (${total} total). Mark the ones to pursue with "yes" in the Approve column, then run Step 2. (${nowStamp()})`
+          : existing.length
+            ? `Done — no new companies to add; ${existing.length} already on the list${note ? `. ${note}` : ""} (${nowStamp()})`
+            : `Done — no companies found${note ? `: ${note}` : ""} (${nowStamp()})`;
         await writeStatus(token, sheet.id, summary);
       } catch (e) {
         await writeStatus(token, sheet.id, `Failed: ${failureReason(e)} (${nowStamp()})`).catch(() => {});

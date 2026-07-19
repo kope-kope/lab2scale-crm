@@ -103,6 +103,14 @@ export async function writeStatus(token: string, sheetId: string, status: string
   });
 }
 
+async function readValues(token: string, sheetId: string, range: string): Promise<string[][]> {
+  const data = (await google(
+    `${SHEETS}/${sheetId}/values/${encodeURIComponent(range)}`,
+    token,
+  )) as { values?: string[][] };
+  return data.values ?? [];
+}
+
 async function clearAndWrite(
   token: string,
   sheetId: string,
@@ -120,35 +128,64 @@ async function clearAndWrite(
   });
 }
 
-/** Stage 1: write companies with an empty Approve column for the human. */
-export async function writeCompanies(
+/** Ensure the company header sits at row 3 (first run creates it). */
+async function ensureCompanyHeader(token: string, sheetId: string): Promise<void> {
+  const head = await readValues(token, sheetId, "A3:D3");
+  const present = (head[0]?.[0] ?? "").toString().trim().toLowerCase().includes("company");
+  if (!present) {
+    await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}?valueInputOption=RAW`, token, {
+      method: "PUT",
+      body: JSON.stringify({ values: [COMPANY_HEADER] }),
+    });
+  }
+}
+
+/**
+ * Stage 1: APPEND companies (new search adds to the list, never replaces). This
+ * preserves existing rows and their Approve marks. Dedup is handled upstream.
+ */
+export async function appendCompanies(
   token: string,
   sheetId: string,
   companies: FoundCompany[],
 ): Promise<void> {
+  await ensureCompanyHeader(token, sheetId);
+  if (!companies.length) return;
   const rows = companies.map((c) => [c.company, c.rationale, c.tier ?? "", ""]);
-  await clearAndWrite(token, sheetId, "A3:D1000", COMPANY_HEADER, rows);
+  await google(
+    `${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    token,
+    { method: "POST", body: JSON.stringify({ values: rows }) },
+  );
 }
 
-/** Read the companies sheet and return the companies whose Approve cell is set. */
-export async function readApprovedCompanies(token: string, sheetId: string): Promise<string[]> {
-  const data = (await google(
-    `${SHEETS}/${sheetId}/values/${encodeURIComponent("A3:D1000")}`,
-    token,
-  )) as { values?: string[][] };
-  const rows = data.values ?? [];
+function readCompanyColumn(rows: string[][], filter?: (approve: string) => boolean): string[] {
   if (rows.length < 2) return [];
   const header = rows[0].map((h) => String(h).trim().toLowerCase());
   const companyCol = header.findIndex((h) => h.includes("company"));
   const approveCol = header.findIndex((h) => h.includes("approve"));
-  if (companyCol < 0 || approveCol < 0) return [];
+  if (companyCol < 0) return [];
   const out: string[] = [];
   for (const row of rows.slice(1)) {
     const company = (row[companyCol] ?? "").trim();
-    const approve = (row[approveCol] ?? "").trim().toLowerCase();
-    if (company && APPROVED.has(approve)) out.push(company);
+    if (!company) continue;
+    if (filter) {
+      const approve = approveCol >= 0 ? (row[approveCol] ?? "").trim().toLowerCase() : "";
+      if (!filter(approve)) continue;
+    }
+    out.push(company);
   }
   return out;
+}
+
+/** Every company already on the sheet (any approval state) — used for dedup. */
+export async function readAllCompanies(token: string, sheetId: string): Promise<string[]> {
+  return readCompanyColumn(await readValues(token, sheetId, "A3:D1000"));
+}
+
+/** Read the companies sheet and return the companies whose Approve cell is set. */
+export async function readApprovedCompanies(token: string, sheetId: string): Promise<string[]> {
+  return readCompanyColumn(await readValues(token, sheetId, "A3:D1000"), (a) => APPROVED.has(a));
 }
 
 /** Stage 2: write the found contacts (replacing any prior rows). */

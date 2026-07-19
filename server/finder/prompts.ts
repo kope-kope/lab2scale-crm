@@ -36,22 +36,40 @@ export function companiesSystemPrompt(): string {
     "- For each company: a one-line rationale tied to the context, and the tier/segment if the brief",
     "  defines tiers (leave tier empty if it doesn't).",
     "- Keep digging across the whole brief; don't stop after the obvious few.",
+    "- If you're given a list of companies ALREADY on our list, never return any of them — this is a",
+    "  follow-up search for NEW companies only. Skip duplicates and near-duplicates (same company,",
+    "  different spelling/suffix).",
     "",
-    "When done, call submit_companies exactly once with the full list. Do not ask questions.",
+    "When done, call submit_companies exactly once with the new list. Do not ask questions.",
   ].join("\n");
 }
 
-export function companiesUserPrompt(accountName: string, contextText: string): string {
+export function companiesUserPrompt(
+  accountName: string,
+  contextText: string,
+  exclude: string[] = [],
+): string {
   const context =
     contextText.trim() || "(The context document is empty — infer sensible targets from the account name.)";
+  const already = exclude.length
+    ? [
+        "",
+        "--- Companies ALREADY on our list (do NOT return any of these — find NEW ones) ---",
+        exclude.map((c) => `- ${c}`).join("\n"),
+        "--- End of existing list ---",
+      ].join("\n")
+    : "";
   return [
     `Account: ${accountName}`,
     "",
     "--- Account context document ---",
     context,
     "--- End of context document ---",
+    already,
     "",
-    "Find the target companies for this account per the brief above, then call submit_companies.",
+    exclude.length
+      ? "Find NEW target companies that are NOT already on the list above, then call submit_companies."
+      : "Find the target companies for this account per the brief above, then call submit_companies.",
   ].join("\n");
 }
 
