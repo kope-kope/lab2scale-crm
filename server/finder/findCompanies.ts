@@ -53,16 +53,20 @@ export async function findCompanies(
   apiKey: string,
   accountName: string,
   contextText: string,
+  exclude: string[] = [],
 ): Promise<FindCompaniesResult> {
   const { input, note } = await runResearchAgent({
     apiKey,
     system: companiesSystemPrompt(),
-    user: companiesUserPrompt(accountName, contextText),
+    user: companiesUserPrompt(accountName, contextText, exclude),
     submitTool: SUBMIT_COMPANIES,
   });
   if (!input) return { companies: [], note };
-  const companies = (input.companies as FoundCompany[] | undefined) ?? [];
-  return { companies: sanitize(companies) };
+  const companies = sanitize((input.companies as FoundCompany[] | undefined) ?? []);
+  // Defensive dedup against what's already on the list (case-insensitive), in
+  // case the model returns one anyway.
+  const have = new Set(exclude.map((e) => e.trim().toLowerCase()));
+  return { companies: companies.filter((c) => !have.has(c.company.toLowerCase())) };
 }
 
 function sanitize(companies: FoundCompany[]): FoundCompany[] {
