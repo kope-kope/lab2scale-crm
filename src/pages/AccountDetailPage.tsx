@@ -98,11 +98,7 @@ export function AccountDetailPage() {
 
       {account && (
         <div className="mt-6">
-          <FindContactsPanel
-            accountName={account.name}
-            accountFolderId={account.id}
-            contextDoc={contextDoc}
-          />
+          <FindContactsPanel accountName={account.name} accountFolderId={account.id} />
         </div>
       )}
 

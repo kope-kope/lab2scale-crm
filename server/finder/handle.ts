@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { findCompanies } from "./findCompanies.js";
 import { findContactsForCompany } from "./findContacts.js";
+import { resolveContext } from "./context.js";
 import {
   findOrCreateSheet,
   companiesSheetName,
@@ -52,7 +53,6 @@ interface Parsed {
   accountName: string;
   accountFolderId: string;
   driveId: string;
-  contextText: string;
 }
 
 interface GoogleUserInfo {
@@ -79,12 +79,11 @@ function parse(req: FinderRequest): { ok: true; v: Parsed } | { ok: false; res: 
   const accountName = str("accountName");
   const accountFolderId = str("accountFolderId");
   const driveId = str("driveId");
-  const contextText = typeof body.contextText === "string" ? body.contextText : "";
   if (!accountName) return err(400, "Missing account name.");
   if (!accountFolderId) return err(400, "Missing account folder id.");
   if (!driveId) return err(400, "Missing drive id.");
 
-  return { ok: true, v: { apiKey, token, accountName, accountFolderId, driveId, contextText } };
+  return { ok: true, v: { apiKey, token, accountName, accountFolderId, driveId } };
 }
 
 function err(status: number, message: string): { ok: false; res: FinderResponse } {
@@ -125,19 +124,29 @@ function failureReason(e: unknown): string {
 export async function handleFindCompanies(req: FinderRequest): Promise<FinderResponse> {
   const parsed = parse(req);
   if (!parsed.ok) return parsed.res;
-  const { apiKey, token, accountName, accountFolderId, driveId, contextText } = parsed.v;
+  const { apiKey, token, accountName, accountFolderId, driveId } = parsed.v;
 
   try {
     await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
     const sheet = await findOrCreateSheet(token, driveId, accountFolderId, companiesSheetName(accountName));
-    await writeStatus(token, sheet.id, `Running… finding target companies (started ${nowStamp()})`);
+    await writeStatus(token, sheet.id, `Running… starting (${nowStamp()})`);
 
     const run = async () => {
       try {
+        // Find or build the account's context brief from its documents.
+        await writeStatus(token, sheet.id, `Running… reading the account's documents…`);
+        const ctx = await resolveContext({ token, apiKey, driveId, folderId: accountFolderId, accountName });
+        await writeStatus(
+          token,
+          sheet.id,
+          ctx.created
+            ? "Running… built a context doc from the account's files; now finding companies…"
+            : "Running… finding target companies…",
+        );
         // Dedup: exclude companies already on the sheet, and append (not replace)
         // so re-running adds new ones while keeping existing rows + Approve marks.
         const existing = await readAllCompanies(token, sheet.id);
-        const { companies, note } = await findCompanies(apiKey, accountName, contextText, existing);
+        const { companies, note } = await findCompanies(apiKey, accountName, ctx.text, existing);
         await appendCompanies(token, sheet.id, companies);
         const total = existing.length + companies.length;
         const noun = companies.length === 1 ? "company" : "companies";
@@ -172,7 +181,7 @@ export async function handleFindCompanies(req: FinderRequest): Promise<FinderRes
 export async function handleFindContacts(req: FinderRequest): Promise<FinderResponse> {
   const parsed = parse(req);
   if (!parsed.ok) return parsed.res;
-  const { apiKey, token, accountName, accountFolderId, driveId, contextText } = parsed.v;
+  const { apiKey, token, accountName, accountFolderId, driveId } = parsed.v;
 
   try {
     await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
@@ -204,6 +213,9 @@ export async function handleFindContacts(req: FinderRequest): Promise<FinderResp
 
     const run = async () => {
       try {
+        // Find or build the account's context brief first, then research people.
+        await writeStatus(token, sheet.id, `Running… reading the account's documents…`);
+        const ctx = await resolveContext({ token, apiKey, driveId, folderId: accountFolderId, accountName });
         // Focus on one company at a time — deeper, better-targeted results, and
         // the sheet fills in company-by-company instead of all-at-the-end.
         await resetContactsSheet(token, sheet.id);
@@ -215,7 +227,7 @@ export async function handleFindContacts(req: FinderRequest): Promise<FinderResp
             sheet.id,
             `Running… ${i}/${approved.length} companies done — now searching ${company} (${total} contacts so far)`,
           );
-          const { contacts } = await findContactsForCompany(apiKey, accountName, contextText, company);
+          const { contacts } = await findContactsForCompany(apiKey, accountName, ctx.text, company);
           await appendContacts(token, sheet.id, contacts);
           total += contacts.length;
         }
