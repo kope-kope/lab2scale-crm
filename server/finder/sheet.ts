@@ -171,24 +171,56 @@ export async function readApprovedCompanies(token: string, sheetId: string): Pro
   return readCompanyColumn(await readValues(token, sheetId, "A3:D1000"), (a) => APPROVED.has(a));
 }
 
-/** Stage 2: start a fresh contacts sheet (clear + header) before the per-company run. */
-export async function resetContactsSheet(token: string, sheetId: string): Promise<void> {
-  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3:F1000")}:clear`, token, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}?valueInputOption=RAW`, token, {
-    method: "PUT",
-    body: JSON.stringify({ values: [CONTACT_HEADER] }),
-  });
+/** Ensure the contacts header sits at row 3 (first run creates it). Non-destructive. */
+async function ensureContactHeader(token: string, sheetId: string): Promise<void> {
+  const head = await readValues(token, sheetId, "A3:F3");
+  const present = (head[0]?.[0] ?? "").toString().trim().toLowerCase() === "name";
+  if (!present) {
+    await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent("A3")}?valueInputOption=RAW`, token, {
+      method: "PUT",
+      body: JSON.stringify({ values: [CONTACT_HEADER] }),
+    });
+  }
 }
 
-/** Stage 2: append one company's contacts as they're found (incremental progress). */
+export interface ExistingContacts {
+  /** "name|company" keys already on the sheet, for person-level dedup. */
+  keys: Set<string>;
+  /** Companies that already have at least one contact — skip them on re-run. */
+  companies: Set<string>;
+}
+
+function contactKey(name: string, company: string): string {
+  return `${name.trim().toLowerCase()}|${company.trim().toLowerCase()}`;
+}
+
+/** Read what's already on the contacts sheet so a re-run adds, never wipes. */
+export async function readExistingContacts(token: string, sheetId: string): Promise<ExistingContacts> {
+  const rows = await readValues(token, sheetId, "A3:F1000");
+  const keys = new Set<string>();
+  const companies = new Set<string>();
+  if (rows.length < 2) return { keys, companies };
+  const header = rows[0].map((h) => String(h).trim().toLowerCase());
+  const nameCol = header.findIndex((h) => h === "name");
+  const companyCol = header.findIndex((h) => h === "company");
+  if (nameCol < 0 || companyCol < 0) return { keys, companies };
+  for (const row of rows.slice(1)) {
+    const name = (row[nameCol] ?? "").trim();
+    const company = (row[companyCol] ?? "").trim();
+    if (!name || !company) continue;
+    keys.add(contactKey(name, company));
+    companies.add(company.toLowerCase());
+  }
+  return { keys, companies };
+}
+
+/** Stage 2: append contacts (ensures header first; caller handles dedup). */
 export async function appendContacts(
   token: string,
   sheetId: string,
   contacts: FoundContact[],
 ): Promise<void> {
+  await ensureContactHeader(token, sheetId);
   if (!contacts.length) return;
   const rows = contacts.map((c) => [
     c.name,
@@ -204,3 +236,5 @@ export async function appendContacts(
     { method: "POST", body: JSON.stringify({ values: rows }) },
   );
 }
+
+export { contactKey };

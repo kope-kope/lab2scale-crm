@@ -8,8 +8,9 @@ import {
   contactsSheetName,
   writeStatus,
   appendCompanies,
-  resetContactsSheet,
   appendContacts,
+  readExistingContacts,
+  contactKey,
   readAllCompanies,
   readApprovedCompanies,
 } from "./sheet.js";
@@ -216,37 +217,46 @@ export async function handleFindContacts(req: FinderRequest): Promise<FinderResp
         // Find or build the account's context brief first, then research people.
         await writeStatus(token, sheet.id, `Running… reading the account's documents…`);
         const ctx = await resolveContext({ token, apiKey, driveId, folderId: accountFolderId, accountName });
-        // Focus on one company at a time — deeper, better-targeted results, and
-        // the sheet fills in company-by-company instead of all-at-the-end.
-        await resetContactsSheet(token, sheet.id);
-        let total = 0;
+
+        // Additive: never wipe the sheet. Skip companies that already have
+        // contacts, and dedup new people against what's already there.
+        const existing = await readExistingContacts(token, sheet.id);
+        const seen = existing.keys;
+        const todo = approved.filter((c) => !existing.companies.has(c.toLowerCase()));
+        const skipped = approved.length - todo.length;
+
+        let added = 0;
         let errored = 0;
-        for (let i = 0; i < approved.length; i++) {
-          const company = approved[i];
+        for (let i = 0; i < todo.length; i++) {
+          const company = todo[i];
           await writeStatus(
             token,
             sheet.id,
-            `Running… ${i}/${approved.length} companies done — now searching ${company} (${total} contacts so far)`,
+            `Running… ${i}/${todo.length} companies done — now searching ${company} (${added} new contacts so far` +
+              `${skipped ? `, ${skipped} already done` : ""})`,
           );
           // Isolate each company: one failure (rate limit, timeout, bad search)
-          // must not abort the other 26. Record it and keep going.
+          // must not abort the rest.
           try {
             const { contacts } = await findContactsForCompany(apiKey, accountName, ctx.text, company);
-            await appendContacts(token, sheet.id, contacts);
-            total += contacts.length;
+            const fresh = contacts.filter((c) => {
+              const k = contactKey(c.name, c.company);
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            });
+            await appendContacts(token, sheet.id, fresh);
+            added += fresh.length;
           } catch (e) {
             errored += 1;
             // eslint-disable-next-line no-console
             console.error(`[finder] company "${company}" failed:`, e);
           }
         }
-        const ok = approved.length - errored;
-        const tail = errored ? ` (${errored} companies errored — run step 2 again to retry them)` : "";
-        await writeStatus(
-          token,
-          sheet.id,
-          `Done — ${total} contacts across ${ok}/${approved.length} companies${tail} (${nowStamp()})`,
-        );
+        const parts = [`added ${added} new contacts across ${todo.length - errored}/${todo.length} new companies`];
+        if (skipped) parts.push(`${skipped} already done`);
+        if (errored) parts.push(`${errored} errored — run step 2 again to retry`);
+        await writeStatus(token, sheet.id, `Done — ${parts.join("; ")} (${nowStamp()})`);
       } catch (e) {
         await writeStatus(token, sheet.id, `Failed: ${failureReason(e)} (${nowStamp()})`).catch(() => {});
         throw e;
