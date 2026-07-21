@@ -70,7 +70,7 @@ export async function findContactsForCompany(
     system: contactsSystemPrompt(),
     user: contactsUserPrompt(accountName, contextText, company),
     submitTool: SUBMIT_CONTACTS,
-    maxSearches: 6, // focused on one company — no need for the wide budget
+    maxSearches: 8, // one company, but hunting both the sponsor and the functional owner
   });
   if (!input) return { contacts: [], note };
   const contacts = (input.contacts as FoundContact[] | undefined) ?? [];
