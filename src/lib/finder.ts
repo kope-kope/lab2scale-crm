@@ -10,10 +10,11 @@ export interface FinderStarted {
 export interface FinderParams {
   accountName: string;
   accountFolderId: string;
-  contextText: string;
 }
 
 async function start(path: string, token: string, params: FinderParams): Promise<FinderStarted> {
+  // The server resolves the account's context itself (finding or generating the
+  // context doc from the account's documents), so the browser sends only ids.
   const res = await fetch(`${CONFIG.apiBaseUrl}${path}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -21,7 +22,6 @@ async function start(path: string, token: string, params: FinderParams): Promise
       accountName: params.accountName,
       accountFolderId: params.accountFolderId,
       driveId: CONFIG.driveFolderId,
-      contextText: params.contextText,
     }),
   });
   const data = (await res.json().catch(() => ({}))) as {
