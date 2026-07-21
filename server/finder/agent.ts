@@ -29,7 +29,9 @@ export async function runResearchAgent(opts: {
   /** Web-search cap for this run. Smaller for focused per-company passes. */
   maxSearches?: number;
 }): Promise<AgentResult> {
-  const client = new Anthropic({ apiKey: opts.apiKey });
+  // Retry transient errors (429 rate limit, 529 overloaded, 5xx) with backoff —
+  // important because Stage 2 fires many sequential calls.
+  const client = new Anthropic({ apiKey: opts.apiKey, maxRetries: 5 });
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: opts.user }];
 
   for (let step = 0; step < MAX_STEPS; step++) {

@@ -220,6 +220,7 @@ export async function handleFindContacts(req: FinderRequest): Promise<FinderResp
         // the sheet fills in company-by-company instead of all-at-the-end.
         await resetContactsSheet(token, sheet.id);
         let total = 0;
+        let errored = 0;
         for (let i = 0; i < approved.length; i++) {
           const company = approved[i];
           await writeStatus(
@@ -227,14 +228,24 @@ export async function handleFindContacts(req: FinderRequest): Promise<FinderResp
             sheet.id,
             `Running… ${i}/${approved.length} companies done — now searching ${company} (${total} contacts so far)`,
           );
-          const { contacts } = await findContactsForCompany(apiKey, accountName, ctx.text, company);
-          await appendContacts(token, sheet.id, contacts);
-          total += contacts.length;
+          // Isolate each company: one failure (rate limit, timeout, bad search)
+          // must not abort the other 26. Record it and keep going.
+          try {
+            const { contacts } = await findContactsForCompany(apiKey, accountName, ctx.text, company);
+            await appendContacts(token, sheet.id, contacts);
+            total += contacts.length;
+          } catch (e) {
+            errored += 1;
+            // eslint-disable-next-line no-console
+            console.error(`[finder] company "${company}" failed:`, e);
+          }
         }
+        const ok = approved.length - errored;
+        const tail = errored ? ` (${errored} companies errored — run step 2 again to retry them)` : "";
         await writeStatus(
           token,
           sheet.id,
-          `Done — ${total} contacts across ${approved.length} companies (${nowStamp()})`,
+          `Done — ${total} contacts across ${ok}/${approved.length} companies${tail} (${nowStamp()})`,
         );
       } catch (e) {
         await writeStatus(token, sheet.id, `Failed: ${failureReason(e)} (${nowStamp()})`).catch(() => {});

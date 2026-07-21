@@ -115,7 +115,7 @@ async function generateContextHtml(
   accountName: string,
   materials: string,
 ): Promise<string> {
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, maxRetries: 5 });
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 6000,
