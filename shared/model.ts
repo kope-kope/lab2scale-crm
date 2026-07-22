@@ -14,11 +14,23 @@ export interface Account {
   name: string; // company name (folder name)
 }
 
-/** A company folder inside Leads/. */
+/** A row in the Leads sheet — a prospective company to qualify. */
 export interface Lead {
-  id: string; // Drive folder id
-  name: string; // company name (folder name)
+  company: string;
+  sector?: string;
+  stage?: string;
+  whyItFits?: string;
+  contacts?: string;
+  sourceUrl?: string;
+  relevance?: string;
+  /** New / Qualified / Disqualified — flipped by the AI qualifier. */
+  status?: string;
+  /** Why it was (dis)qualified — written by the AI qualifier. */
+  note?: string;
 }
+
+/** Header the qualifier writes its reason into (created if missing). */
+export const LEAD_NOTE_HEADER = "Qualification note";
 
 /** A row in the Contacts sheet. `account` links to an Account by company name. */
 export interface Contact {

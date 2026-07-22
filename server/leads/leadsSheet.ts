@@ -1,0 +1,244 @@
+/**
+ * Server-side Drive + Sheets access for the Leads qualifier, as the signed-in
+ * user. Reads the Leads sheet, finds/seeds the qualification-rules doc, and
+ * writes each lead's verdict (Status + a reason column) back in place.
+ */
+
+const DRIVE = "https://www.googleapis.com/drive/v3";
+const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
+const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets";
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+const DOC_MIME = "application/vnd.google-apps.document";
+
+const LEADS_FOLDER = "Leads";
+const RULES_DOC_NAME = "Lead qualification rules";
+export const NOTE_HEADER = "Qualification note";
+
+function reasonFrom(body: string): string {
+  try {
+    const j = JSON.parse(body) as { error?: { message?: string } };
+    return j.error?.message ? ` ${j.error.message}` : "";
+  } catch {
+    return "";
+  }
+}
+
+async function google(url: string, token: string, init?: RequestInit): Promise<unknown> {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) throw new Error(`Google API ${res.status}.${reasonFrom(await res.text().catch(() => ""))}`);
+  return res.json();
+}
+
+async function listChildren(
+  token: string,
+  driveId: string,
+  parentId: string,
+  mimeType?: string,
+): Promise<{ id: string; name: string; webViewLink?: string }[]> {
+  let q = `'${parentId}' in parents and trashed = false`;
+  if (mimeType) q += ` and mimeType = '${mimeType}'`;
+  const params = new URLSearchParams({
+    q,
+    fields: "files(id,name,webViewLink)",
+    corpora: "drive",
+    driveId,
+    supportsAllDrives: "true",
+    includeItemsFromAllDrives: "true",
+    pageSize: "50",
+    orderBy: "name",
+  });
+  return ((await google(`${DRIVE}/files?${params.toString()}`, token)) as {
+    files?: { id: string; name: string; webViewLink?: string }[];
+  }).files ?? [];
+}
+
+export interface LeadsSheet {
+  sheetId: string;
+  sheetUrl: string;
+  folderId: string;
+}
+
+/** Locate the Leads area folder and the leads spreadsheet inside it. */
+export async function findLeadsSheet(
+  token: string,
+  driveId: string,
+  topFolderId: string,
+): Promise<LeadsSheet> {
+  const folder = (await listChildren(token, driveId, topFolderId, FOLDER_MIME)).find(
+    (f) => f.name === LEADS_FOLDER,
+  );
+  if (!folder) throw new Error("The Leads folder isn't in Drive.");
+  const sheet = (await listChildren(token, driveId, folder.id, SHEET_MIME))[0];
+  if (!sheet) throw new Error("No spreadsheet inside the Leads folder.");
+  return {
+    sheetId: sheet.id,
+    sheetUrl: sheet.webViewLink ?? `https://docs.google.com/spreadsheets/d/${sheet.id}/edit`,
+    folderId: folder.id,
+  };
+}
+
+export interface LeadGrid {
+  headers: string[];
+  rows: string[][];
+}
+
+/** Read the whole leads grid (row 0 = headers). */
+export async function readLeadGrid(token: string, sheetId: string): Promise<LeadGrid> {
+  const data = (await google(
+    `${SHEETS}/${sheetId}/values/${encodeURIComponent("A1:Z2000")}`,
+    token,
+  )) as { values?: string[][] };
+  const values = data.values ?? [];
+  return { headers: (values[0] ?? []).map((h) => String(h).trim()), rows: values.slice(1) };
+}
+
+function colLetter(index: number): string {
+  let n = index;
+  let s = "";
+  do {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return s;
+}
+
+function headerIndex(headers: string[], names: string[]): number {
+  const wanted = new Set(names.map((n) => n.toLowerCase()));
+  return headers.findIndex((h) => wanted.has(h.trim().toLowerCase()));
+}
+
+async function update(token: string, sheetId: string, range: string, values: string[][]): Promise<void> {
+  await google(`${SHEETS}/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, token, {
+    method: "PUT",
+    body: JSON.stringify({ values }),
+  });
+}
+
+export interface Verdict {
+  index: number;
+  company: string;
+  decision: string;
+  reason: string;
+}
+
+/**
+ * Write verdicts back into the sheet: the Status column becomes Qualified /
+ * Disqualified, and the reason goes into a "Qualification note" column (created
+ * if absent). Verdicts are matched to rows by index, falling back to company.
+ */
+export async function writeVerdicts(
+  token: string,
+  sheetId: string,
+  grid: LeadGrid,
+  verdicts: Verdict[],
+): Promise<void> {
+  const { headers, rows } = grid;
+  const companyIdx = headerIndex(headers, ["company", "name"]);
+  let statusIdx = headerIndex(headers, ["status"]);
+  let noteIdx = headerIndex(headers, [NOTE_HEADER.toLowerCase(), "note", "reason"]);
+
+  // Append Status / note headers if the sheet doesn't have them.
+  let nextCol = headers.length;
+  if (statusIdx < 0) {
+    statusIdx = nextCol++;
+    await update(token, sheetId, `${colLetter(statusIdx)}1`, [["Status"]]);
+  }
+  if (noteIdx < 0) {
+    noteIdx = nextCol++;
+    await update(token, sheetId, `${colLetter(noteIdx)}1`, [[NOTE_HEADER]]);
+  }
+
+  const byIndex = new Map<number, Verdict>();
+  const byCompany = new Map<string, Verdict>();
+  for (const v of verdicts) {
+    byIndex.set(v.index, v);
+    byCompany.set(v.company.trim().toLowerCase(), v);
+  }
+
+  const statusCol: string[][] = [];
+  const noteCol: string[][] = [];
+  rows.forEach((row, i) => {
+    const company = (row[companyIdx] ?? "").trim();
+    const v = byIndex.get(i) ?? byCompany.get(company.toLowerCase());
+    statusCol.push([v ? v.decision : (row[statusIdx] ?? "")]);
+    noteCol.push([v ? v.reason : (row[noteIdx] ?? "")]);
+  });
+
+  const last = rows.length + 1; // data starts at sheet row 2
+  if (rows.length) {
+    await update(token, sheetId, `${colLetter(statusIdx)}2:${colLetter(statusIdx)}${last}`, statusCol);
+    await update(token, sheetId, `${colLetter(noteIdx)}2:${colLetter(noteIdx)}${last}`, noteCol);
+  }
+}
+
+function defaultRulesHtml(): string {
+  return [
+    "<h1>Lead qualification rules</h1>",
+    "<p>Edit these freely — the AI qualifier applies them to each lead. Be specific.</p>",
+    "<h2>Qualify a lead if</h2>",
+    "<ul>",
+    "<li>It's a deep-tech / hard-tech company (energy, nuclear, climate, advanced manufacturing, semiconductors, water, materials, robotics).</li>",
+    "<li>The technology is demonstrated — roughly TRL 4 or higher (a working prototype or pilot), not just a concept.</li>",
+    "<li>Relevance score is 7.0 or above (if a score is present).</li>",
+    "<li>It's a real, verifiable company that plausibly needs help going to market.</li>",
+    "</ul>",
+    "<h2>Disqualify a lead if</h2>",
+    "<ul>",
+    "<li>It's pure software / SaaS / consumer / fintech with no deep-tech core.</li>",
+    "<li>It's too early (pure research, no demonstrated technology) or relevance is below 7.0.</li>",
+    "<li>You can't tell what it does, or it clearly doesn't fit lab2scale's deep-tech focus.</li>",
+    "</ul>",
+    "<h2>Notes</h2>",
+    "<p>When unsure, lean Disqualified and say why — a human reviews the list.</p>",
+  ].join("");
+}
+
+/** Find the rules doc in the Leads folder, or create it seeded with defaults. Returns its text. */
+export async function findOrCreateRulesDoc(
+  token: string,
+  driveId: string,
+  leadsFolderId: string,
+): Promise<{ text: string; url: string; created: boolean }> {
+  const docs = await listChildren(token, driveId, leadsFolderId, DOC_MIME);
+  const existing = docs.find((d) => /qualif|rules/i.test(d.name));
+  if (existing) {
+    const res = await fetch(
+      `${DRIVE}/files/${existing.id}/export?mimeType=${encodeURIComponent("text/plain")}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const text = res.ok ? (await res.text()).trim() : "";
+    if (text.length > 20) {
+      return { text, url: existing.webViewLink ?? "", created: false };
+    }
+  }
+
+  const boundary = `l2s-rules-${leadsFolderId.length}`;
+  const metadata = { name: RULES_DOC_NAME, mimeType: DOC_MIME, parents: [leadsFolderId] };
+  const html = defaultRulesHtml();
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n${html}\r\n--${boundary}--`;
+  const res = await fetch(
+    `${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+    },
+  );
+  if (!res.ok) throw new Error(`Couldn't create the rules doc (${res.status}).`);
+  const doc = (await res.json()) as { id: string; webViewLink?: string };
+  const exported = await fetch(
+    `${DRIVE}/files/${doc.id}/export?mimeType=${encodeURIComponent("text/plain")}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return { text: exported.ok ? (await exported.text()).trim() : "", url: doc.webViewLink ?? "", created: true };
+}

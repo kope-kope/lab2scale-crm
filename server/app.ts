@@ -3,6 +3,7 @@ import compression from "compression";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleFindCompanies, handleFindContacts, type FinderRequest, type FinderResponse } from "./finder/handle.js";
+import { handleQualifyLeads } from "./leads/handle.js";
 import { corsMiddleware } from "./http/cors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,6 +57,17 @@ export function createApp(requireAuth: RequestHandler) {
 
   api.post("/find-companies", asyncFinder(handleFindCompanies)); // Stage 1
   api.post("/find-contacts", asyncFinder(handleFindContacts)); // Stage 2
+
+  // Lead qualifier — synchronous (one AI call over the rules, no web search).
+  api.post("/qualify-leads", (req, res) => {
+    handleQualifyLeads({ authHeader: req.headers.authorization, body: req.body })
+      .then(({ status, body }) => res.status(status).json(body))
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error("[leads] qualify failed:", e);
+        if (!res.headersSent) res.status(500).json({ error: "Something went wrong qualifying leads." });
+      });
+  });
 
   // The gate. Every route below this line requires a verified, allowed account.
   api.use(requireAuth);

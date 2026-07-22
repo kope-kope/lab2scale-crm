@@ -1,5 +1,5 @@
 import { parseCsv } from "@shared/csv";
-import { toContacts } from "@shared/parseRows";
+import { toContacts, toLeads } from "@shared/parseRows";
 import { AREA_FOLDERS } from "@shared/model";
 import type { Account, Contact, Lead } from "@shared/model";
 
@@ -115,17 +115,24 @@ export async function readAll(token: string, topFolderId: string): Promise<Drive
     findFolder(token, topFolderId, topFolderId, AREA_FOLDERS.contacts),
   ]);
 
-  const [accountFolders, leadFolders, contacts] = await Promise.all([
+  const [accountFolders, leads, contacts] = await Promise.all([
     accountsArea ? listChildren(token, topFolderId, accountsArea.id, FOLDER_MIME) : Promise.resolve([]),
-    leadsArea ? listChildren(token, topFolderId, leadsArea.id, FOLDER_MIME) : Promise.resolve([]),
+    leadsArea ? readLeads(token, topFolderId, leadsArea.id) : Promise.resolve([]),
     contactsArea ? readContacts(token, topFolderId, contactsArea.id) : Promise.resolve([]),
   ]);
 
   return {
     accounts: accountFolders.map((f) => ({ id: f.id, name: f.name })),
-    leads: leadFolders.map((f) => ({ id: f.id, name: f.name })),
+    leads,
     contacts,
   };
+}
+
+/** Read the first spreadsheet inside the Leads folder into typed leads. */
+async function readLeads(token: string, driveId: string, leadsFolderId: string): Promise<Lead[]> {
+  const sheet = (await listChildren(token, driveId, leadsFolderId, SHEET_MIME))[0];
+  if (!sheet) return [];
+  return toLeads(parseCsv(await exportCsv(token, sheet.id)));
 }
 
 /** Read the first spreadsheet inside the Contacts folder into typed contacts. */
