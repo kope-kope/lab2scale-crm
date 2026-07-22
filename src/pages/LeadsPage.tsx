@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Sparkles, ExternalLink } from "lucide-react";
+import { Sparkles, ExternalLink, Trash2, Loader2 } from "lucide-react";
 import { Badge, Button, Table, type BadgeRole, type TableColumn, type TableRow } from "@/components/ds";
 import { ListState } from "@/components/ListState";
 import { useDriveData } from "@/data/DriveDataProvider";
 import { useAuth } from "@/auth/AuthProvider";
-import { qualifyLeads, type QualifyResult } from "@/lib/leads";
+import { qualifyLeads, qualifyLead, deleteLead, type QualifyResult } from "@/lib/leads";
 
 const COLUMNS: TableColumn[] = [
   { key: "company", label: "Company" },
@@ -13,6 +13,7 @@ const COLUMNS: TableColumn[] = [
   { key: "relevance", label: "Relevance" },
   { key: "status", label: "Status" },
   { key: "note", label: "Note" },
+  { key: "actions", label: "", width: "150px" },
 ];
 
 function statusRole(status?: string): BadgeRole {
@@ -30,6 +31,8 @@ export function LeadsPage() {
   const [qualifying, setQualifying] = useState(false);
   const [result, setResult] = useState<QualifyResult | null>(null);
   const [qualifyError, setQualifyError] = useState<string | null>(null);
+  // Which row is mid-action (keyed by company), and what it's doing.
+  const [busyRow, setBusyRow] = useState<{ company: string; action: "qualify" | "delete" } | null>(null);
 
   async function qualify() {
     if (!token) return;
@@ -47,24 +50,86 @@ export function LeadsPage() {
     }
   }
 
-  const rows: TableRow[] = leads.map((l) => ({
-    company: (
-      <span className="text-body">
-        {l.sourceUrl ? (
-          <a href={l.sourceUrl} target="_blank" rel="noreferrer" className="text-action">
-            {l.company}
-          </a>
-        ) : (
-          l.company
-        )}
-      </span>
-    ),
-    sector: <span className="text-muted">{l.sector ?? ""}</span>,
-    stage: <span className="text-muted">{l.stage ?? ""}</span>,
-    relevance: <span className="text-muted">{l.relevance ?? ""}</span>,
-    status: l.status ? <Badge role={statusRole(l.status)}>{l.status}</Badge> : "",
-    note: <span className="text-small text-muted">{l.note ?? ""}</span>,
-  }));
+  async function qualifyRow(company: string, rowIndex: number) {
+    if (!token) return;
+    setBusyRow({ company, action: "qualify" });
+    setQualifyError(null);
+    try {
+      await qualifyLead(token, company, rowIndex);
+      reload();
+    } catch (e) {
+      setQualifyError(e instanceof Error ? e.message : `Couldn't qualify ${company}.`);
+    } finally {
+      setBusyRow(null);
+    }
+  }
+
+  async function removeRow(company: string, rowIndex: number) {
+    if (!token) return;
+    if (!window.confirm(`Delete "${company}" from the Leads sheet? This can't be undone.`)) return;
+    setBusyRow({ company, action: "delete" });
+    setQualifyError(null);
+    try {
+      await deleteLead(token, company, rowIndex);
+      reload();
+    } catch (e) {
+      setQualifyError(e instanceof Error ? e.message : `Couldn't delete ${company}.`);
+    } finally {
+      setBusyRow(null);
+    }
+  }
+
+  const anyBusy = qualifying || busyRow !== null;
+  const rows: TableRow[] = leads.map((l, i) => {
+    const busy = busyRow?.company === l.company;
+    return {
+      company: (
+        <span className="text-body">
+          {l.sourceUrl ? (
+            <a href={l.sourceUrl} target="_blank" rel="noreferrer" className="text-action">
+              {l.company}
+            </a>
+          ) : (
+            l.company
+          )}
+        </span>
+      ),
+      sector: <span className="text-muted">{l.sector ?? ""}</span>,
+      stage: <span className="text-muted">{l.stage ?? ""}</span>,
+      relevance: <span className="text-muted">{l.relevance ?? ""}</span>,
+      status: l.status ? <Badge role={statusRole(l.status)}>{l.status}</Badge> : "",
+      note: <span className="text-small text-muted">{l.note ?? ""}</span>,
+      actions: (
+        <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={() => void qualifyRow(l.company, i)}
+            disabled={anyBusy}
+            title="Qualify this lead"
+            className="inline-flex items-center gap-1 rounded-control px-2 py-1 text-small text-action transition-colors ease-ds hover:bg-neutral-100 disabled:opacity-40"
+          >
+            {busy && busyRow?.action === "qualify" ? (
+              <Loader2 size={15} strokeWidth={1.5} className="animate-spin" />
+            ) : (
+              <Sparkles size={15} strokeWidth={1.5} />
+            )}
+            Qualify
+          </button>
+          <button
+            onClick={() => void removeRow(l.company, i)}
+            disabled={anyBusy}
+            title="Delete this lead"
+            className="inline-flex items-center rounded-control px-2 py-1 text-small text-muted transition-colors ease-ds hover:bg-neutral-100 hover:text-danger-text disabled:opacity-40"
+          >
+            {busy && busyRow?.action === "delete" ? (
+              <Loader2 size={15} strokeWidth={1.5} className="animate-spin" />
+            ) : (
+              <Trash2 size={15} strokeWidth={1.5} />
+            )}
+          </button>
+        </div>
+      ),
+    };
+  });
 
   return (
     <div>
@@ -77,9 +142,9 @@ export function LeadsPage() {
               : `${leads.length} prospective ${leads.length === 1 ? "company" : "companies"}, read live from the Leads sheet.`}
           </p>
         </div>
-        <Button onClick={() => void qualify()} disabled={qualifying || leads.length === 0}>
+        <Button onClick={() => void qualify()} disabled={anyBusy || leads.length === 0}>
           <Sparkles size={16} strokeWidth={1.5} />
-          {qualifying ? "Qualifying…" : "Qualify leads"}
+          {qualifying ? "Qualifying…" : "Qualify all"}
         </Button>
       </header>
 
