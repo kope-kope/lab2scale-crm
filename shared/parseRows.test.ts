@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseSheet, toContacts } from "./parseRows.ts";
+import { parseSheet, toContacts, toLeads } from "./parseRows.ts";
 
 test("maps rows to objects keyed by header name", () => {
   const values = [
@@ -69,4 +69,29 @@ test("trims whitespace in headers and cells", () => {
 test("empty and header-only sheets yield no records", () => {
   assert.deepEqual(parseSheet([]), []);
   assert.deepEqual(toContacts([["id", "name"]]), []);
+});
+
+test("toLeads maps the real Leads sheet headers (spaces/case tolerant)", () => {
+  const values = [
+    ["Date", "Company", "Sector", "Stage", "Why it fits", "Contacts", "Source URL", "Relevance", "Status"],
+    ["2026-07-21", "Radiant", "Nuclear", "TRL 5", "Portable microreactor", "Doug B.", "https://x.co", "8.8", "New"],
+  ];
+  const [l] = toLeads(values);
+  assert.equal(l.company, "Radiant");
+  assert.equal(l.sector, "Nuclear");
+  assert.equal(l.stage, "TRL 5");
+  assert.equal(l.whyItFits, "Portable microreactor");
+  assert.equal(l.sourceUrl, "https://x.co");
+  assert.equal(l.relevance, "8.8");
+  assert.equal(l.status, "New");
+});
+
+test("toLeads drops rows with no company and reads a qualification note", () => {
+  const leads = toLeads([
+    ["Company", "Status", "Qualification note"],
+    ["Radiant", "Qualified", "Deep-tech, TRL 5, relevance 8.8"],
+    ["", "New", ""],
+  ]);
+  assert.equal(leads.length, 1);
+  assert.equal(leads[0].note, "Deep-tech, TRL 5, relevance 8.8");
 });
