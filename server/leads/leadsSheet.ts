@@ -179,6 +179,57 @@ export async function writeVerdicts(
   }
 }
 
+/**
+ * Resolve which data-row (0-based, header excluded) a lead is, matching by the
+ * client's index when the company still lines up, else by company name. Returns
+ * -1 if the sheet no longer has that lead.
+ */
+export function resolveDataRow(grid: LeadGrid, company: string, rowIndex: number): number {
+  const ci = headerIndex(grid.headers, ["company", "name"]);
+  if (ci < 0) return -1;
+  const target = company.trim().toLowerCase();
+  if (
+    rowIndex >= 0 &&
+    rowIndex < grid.rows.length &&
+    (grid.rows[rowIndex][ci] ?? "").trim().toLowerCase() === target
+  ) {
+    return rowIndex;
+  }
+  return grid.rows.findIndex((r) => (r[ci] ?? "").trim().toLowerCase() === target);
+}
+
+/** The gid of the first tab (needed for row deletion). */
+export async function firstSheetGid(token: string, sheetId: string): Promise<number> {
+  const data = (await google(`${SHEETS}/${sheetId}?fields=sheets.properties(sheetId,index)`, token)) as {
+    sheets?: { properties?: { sheetId?: number; index?: number } }[];
+  };
+  const first = (data.sheets ?? [])
+    .slice()
+    .sort((a, b) => (a.properties?.index ?? 0) - (b.properties?.index ?? 0))[0];
+  return first?.properties?.sheetId ?? 0;
+}
+
+/** Delete one data row from the sheet (dataIndex is 0-based, header excluded). */
+export async function deleteRow(
+  token: string,
+  sheetId: string,
+  gid: number,
+  dataIndex: number,
+): Promise<void> {
+  await google(`${SHEETS}/${sheetId}:batchUpdate`, token, {
+    method: "POST",
+    body: JSON.stringify({
+      requests: [
+        {
+          deleteDimension: {
+            range: { sheetId: gid, dimension: "ROWS", startIndex: dataIndex + 1, endIndex: dataIndex + 2 },
+          },
+        },
+      ],
+    }),
+  });
+}
+
 function defaultRulesHtml(): string {
   return [
     "<h1>Lead qualification rules</h1>",

@@ -1,5 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { findLeadsSheet, readLeadGrid, findOrCreateRulesDoc, writeVerdicts } from "./leadsSheet.js";
+import {
+  findLeadsSheet,
+  readLeadGrid,
+  findOrCreateRulesDoc,
+  writeVerdicts,
+  resolveDataRow,
+  firstSheetGid,
+  deleteRow,
+} from "./leadsSheet.js";
 import { qualifyLeads, type LeadInput } from "./qualifyLeads.js";
 
 /**
@@ -123,5 +131,99 @@ export async function handleQualifyLeads(req: QualifyRequest): Promise<QualifyRe
     }
     if (err instanceof Error) return { status: 502, body: { error: `Couldn't qualify leads. ${err.message}` } };
     return { status: 500, body: { error: "Something went wrong qualifying leads." } };
+  }
+}
+
+// ── Row-level actions ──────────────────────────────────────────────────────
+
+interface RowRequest {
+  driveId: string;
+  company: string;
+  rowIndex: number;
+}
+
+function parseRow(req: QualifyRequest): { token: string; row: RowRequest } | { error: QualifyResponse } {
+  const token = (req.authHeader ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return { error: { status: 401, body: { error: "Missing sign-in token." } } };
+  const body = (req.body ?? {}) as { driveId?: unknown; company?: unknown; rowIndex?: unknown };
+  const driveId = typeof body.driveId === "string" ? body.driveId.trim() : "";
+  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const rowIndex = typeof body.rowIndex === "number" ? body.rowIndex : -1;
+  if (!driveId) return { error: { status: 400, body: { error: "Missing drive id." } } };
+  if (!company) return { error: { status: 400, body: { error: "Missing company." } } };
+  return { token, row: { driveId, company, rowIndex } };
+}
+
+function mapError(err: unknown): QualifyResponse {
+  if (err instanceof HttpError) return { status: err.status, body: { error: err.message } };
+  if (err instanceof Anthropic.APIError) {
+    const status = err.status && err.status >= 400 && err.status < 500 ? err.status : 502;
+    return { status, body: { error: `The AI request failed (${err.status ?? "?"}). ${err.message}` } };
+  }
+  if (err instanceof Error) return { status: 502, body: { error: err.message } };
+  return { status: 500, body: { error: "Something went wrong." } };
+}
+
+/** Qualify a single lead (so obviously-bad ones needn't cost a full-sheet run). */
+export async function handleQualifyLead(req: QualifyRequest): Promise<QualifyResponse> {
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) return { status: 500, body: { error: "AI isn't configured yet — set ANTHROPIC_API_KEY on the server." } };
+  const parsed = parseRow(req);
+  if ("error" in parsed) return parsed.error;
+  const { token, row } = parsed;
+
+  try {
+    await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
+    const sheet = await findLeadsSheet(token, row.driveId, row.driveId);
+    const grid = await readLeadGrid(token, sheet.sheetId);
+    const di = resolveDataRow(grid, row.company, row.rowIndex);
+    if (di < 0) return { status: 404, body: { error: "That lead isn't in the sheet anymore — reload." } };
+
+    const rules = await findOrCreateRulesDoc(token, row.driveId, sheet.folderId);
+    const cell = (i: number) => (i >= 0 ? (grid.rows[di][i] ?? "").trim() : "");
+    const idx = (names: string[]) => headerIdx(grid.headers, names);
+    const lead: LeadInput = {
+      index: di,
+      company: row.company,
+      sector: cell(idx(["sector", "category"])) || undefined,
+      stage: cell(idx(["stage", "trl"])) || undefined,
+      whyItFits: cell(idx(["why it fits", "why fits", "why", "rationale"])) || undefined,
+      relevance: cell(idx(["relevance", "score"])) || undefined,
+    };
+    const [verdict] = await qualifyLeads(apiKey, rules.text, [lead]);
+    if (!verdict) return { status: 502, body: { error: "The AI didn't return a verdict — try again." } };
+    await writeVerdicts(token, sheet.sheetId, grid, [verdict]);
+    return {
+      status: 200,
+      body: { total: 1, qualified: verdict.decision === "Qualified" ? 1 : 0, disqualified: verdict.decision === "Qualified" ? 0 : 1, sheetUrl: sheet.sheetUrl, rulesUrl: rules.url, rulesCreated: rules.created },
+    };
+  } catch (err) {
+    return mapError(err);
+  }
+}
+
+export interface DeleteResponse {
+  status: number;
+  body: { deleted: true; company: string } | { error: string };
+}
+
+/** Delete a lead row from the sheet (destructive — the client confirms first). */
+export async function handleDeleteLead(req: QualifyRequest): Promise<DeleteResponse> {
+  const parsed = parseRow(req);
+  if ("error" in parsed) return { status: parsed.error.status, body: parsed.error.body as { error: string } };
+  const { token, row } = parsed;
+
+  try {
+    await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
+    const sheet = await findLeadsSheet(token, row.driveId, row.driveId);
+    const grid = await readLeadGrid(token, sheet.sheetId);
+    const di = resolveDataRow(grid, row.company, row.rowIndex);
+    if (di < 0) return { status: 404, body: { error: "That lead isn't in the sheet anymore — reload." } };
+    const gid = await firstSheetGid(token, sheet.sheetId);
+    await deleteRow(token, sheet.sheetId, gid, di);
+    return { status: 200, body: { deleted: true, company: row.company } };
+  } catch (err) {
+    const mapped = mapError(err);
+    return { status: mapped.status, body: mapped.body as { error: string } };
   }
 }
