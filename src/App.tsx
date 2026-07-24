@@ -4,6 +4,7 @@ import { AccountsPage } from "@/pages/AccountsPage";
 import { AccountDetailPage } from "@/pages/AccountDetailPage";
 import { ContactsPage } from "@/pages/ContactsPage";
 import { LeadsPage } from "@/pages/LeadsPage";
+import { ScreenLabPage } from "@/pages/ScreenLabPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { useAuth } from "@/auth/AuthProvider";
 import { DriveDataProvider } from "@/data/DriveDataProvider";
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/accounts/:id" element={<AccountDetailPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/leads" element={<LeadsPage />} />
+          <Route path="/screen-lab" element={<ScreenLabPage />} />
           <Route path="*" element={<Navigate to="/accounts" replace />} />
         </Route>
       </Routes>

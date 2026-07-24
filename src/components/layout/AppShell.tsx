@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Building2, Users, Target, LogOut } from "lucide-react";
+import { Building2, Users, Target, FlaskConical, LogOut } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NavItem } from "@/components/ds";
 import { useAuth } from "@/auth/AuthProvider";
@@ -8,6 +8,7 @@ const NAV: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/accounts", label: "Accounts", icon: Building2 },
   { to: "/contacts", label: "Contacts", icon: Users },
   { to: "/leads", label: "Leads", icon: Target },
+  { to: "/screen-lab", label: "Screen Lab", icon: FlaskConical },
 ];
 
 function Wordmark() {

@@ -3,7 +3,7 @@ import compression from "compression";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleFindCompanies, handleFindContacts, type FinderRequest, type FinderResponse } from "./finder/handle.js";
-import { handleQualifyLead, handleDeleteLead } from "./leads/handle.js";
+import { handleQualifyLead, handleDeleteLead, handleScreenPreview } from "./leads/handle.js";
 import { corsMiddleware } from "./http/cors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -74,6 +74,7 @@ export function createApp(requireAuth: RequestHandler) {
 
   api.post("/qualify-lead", leadRoute(handleQualifyLead)); // one row
   api.post("/delete-lead", leadRoute(handleDeleteLead)); // one row (destructive)
+  api.post("/screen-preview", leadRoute(handleScreenPreview)); // sandbox — reads/writes nothing
 
   // The gate. Every route below this line requires a verified, allowed account.
   api.use(requireAuth);

@@ -161,6 +161,49 @@ export async function handleQualifyLead(req: QualifyRequest): Promise<QualifyRes
   }
 }
 
+// ── Sandbox: screen an arbitrary company without touching any sheet ──────────
+
+export interface PreviewResponse {
+  status: number;
+  body: { screen: Screen } | { error: string };
+}
+
+/**
+ * Run the client qualification screen on an ad-hoc company typed into the
+ * sandbox page. Same engine as handleQualifyLead, but it reads nothing and
+ * writes nothing — no Drive, no sheet — so it's a safe playground. Calibration
+ * notes are not applied here; this shows the base screener's judgement.
+ */
+export async function handleScreenPreview(req: QualifyRequest): Promise<PreviewResponse> {
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) return { status: 500, body: { error: "AI isn't configured yet — set ANTHROPIC_API_KEY on the server." } };
+
+  const token = (req.authHeader ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return { status: 401, body: { error: "Missing sign-in token." } };
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const company = str(body.company);
+  if (!company) return { status: 400, body: { error: "Enter a company name to screen." } };
+
+  const lead: LeadInput = {
+    index: 0,
+    company,
+    sector: str(body.sector) || undefined,
+    stage: str(body.stage) || undefined,
+    whyItFits: str(body.whyItFits) || undefined,
+    relevance: str(body.relevance) || undefined,
+  };
+
+  try {
+    await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
+    const screen = await screenLead(apiKey, "", lead);
+    return { status: 200, body: { screen } };
+  } catch (err) {
+    const mapped = mapError(err);
+    return { status: mapped.status, body: mapped.body as { error: string } };
+  }
+}
+
 export interface DeleteResponse {
   status: number;
   body: { deleted: true; company: string } | { error: string };

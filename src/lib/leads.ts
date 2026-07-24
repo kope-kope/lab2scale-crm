@@ -54,3 +54,42 @@ export async function qualifyLead(
 export async function deleteLead(token: string, company: string, rowIndex: number): Promise<void> {
   await post<{ deleted: true }>("/api/delete-lead", token, { company, rowIndex });
 }
+
+// ── Sandbox screener (no sheet read/write) ───────────────────────────────────
+
+export type Verdict = "Pursue" | "Gate" | "Pass";
+export type EngagementType = "Commercialization" | "Capital" | "Combined" | "None";
+
+/** The full client qualification screen, mirroring the server's Screen shape. */
+export interface ScreenResult {
+  company: string;
+  read: string;
+  facts: string;
+  sectorFit: string;
+  firstBuyer: string;
+  dominantRisk: string;
+  commercialMovability: string;
+  stage: string;
+  feeEvent: string;
+  engagementType: EngagementType;
+  clientFit: string;
+  incumbent: string;
+  companyOrFeature: string;
+  proof: string;
+  verdict: Verdict;
+  verdictReason: string;
+}
+
+export interface ScreenInput {
+  company: string;
+  sector?: string;
+  stage?: string;
+  relevance?: string;
+  whyItFits?: string;
+}
+
+/** Screen an ad-hoc company in the sandbox — reads nothing, writes nothing. */
+export async function screenPreview(token: string, input: ScreenInput): Promise<ScreenResult> {
+  const { screen } = await post<{ screen: ScreenResult }>("/api/screen-preview", token, { ...input });
+  return screen;
+}
