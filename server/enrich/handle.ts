@@ -64,18 +64,23 @@ export interface FindEmailsResponse {
     | { error: string };
 }
 
-function parseDriveId(req: FindEmailsRequest): { token: string; driveId: string } | { error: FindEmailsResponse } {
+function parseDriveId(
+  req: FindEmailsRequest,
+): { token: string; driveId: string; account: string } | { error: FindEmailsResponse } {
   const token = (req.authHeader ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return { error: { status: 401, body: { error: "Missing sign-in token." } } };
   const body = (req.body ?? {}) as Record<string, unknown>;
   const driveId = typeof body.driveId === "string" ? body.driveId.trim() : "";
+  // Optional: scope enrichment to one account's contacts. Absent = whole sheet.
+  const account = typeof body.account === "string" ? body.account.trim() : "";
   if (!driveId) return { error: { status: 400, body: { error: "Missing drive id." } } };
-  return { token, driveId };
+  return { token, driveId, account };
 }
 
 /**
- * Enrich every contact in the Contacts sheet. Reads the sheet, finds emails for
- * the ones without, and writes them back.
+ * Enrich contacts in the Contacts sheet. Reads the sheet, finds emails for the
+ * ones without, and writes them back. When `account` is given, only that
+ * account's contacts (matched by account or company name) are processed.
  */
 export async function handleFindEmails(req: FindEmailsRequest): Promise<FindEmailsResponse> {
   if (!hunterConfigured()) {
@@ -83,7 +88,7 @@ export async function handleFindEmails(req: FindEmailsRequest): Promise<FindEmai
   }
   const parsed = parseDriveId(req);
   if ("error" in parsed) return parsed.error;
-  const { token, driveId } = parsed;
+  const { token, driveId, account } = parsed;
 
   try {
     await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
@@ -100,11 +105,19 @@ export async function handleFindEmails(req: FindEmailsRequest): Promise<FindEmai
 
     const cell = (row: string[], i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
 
+    // Scope to one account's rows when requested (match account or company col).
+    const want = account.toLowerCase();
+    const rows = want
+      ? grid.rows.filter(
+          (r) => cell(r, accountIdx).toLowerCase() === want || cell(r, companyIdx).toLowerCase() === want,
+        )
+      : grid.rows;
+
     const results: EmailResult[] = [];
     const emailById = new Map<string, string>();
     let stopped = false;
 
-    for (const row of grid.rows) {
+    for (const row of rows) {
       const name = cell(row, nameIdx);
       if (!name) continue; // blank row
       const company = cell(row, companyIdx) || cell(row, accountIdx);

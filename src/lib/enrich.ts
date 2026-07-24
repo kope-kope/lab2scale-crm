@@ -20,17 +20,18 @@ export interface FindEmailsResult {
 }
 
 /**
- * Find emails for every contact in the Contacts sheet. The server reads the
- * sheet, calls Hunter (its key never touches the browser) for contacts missing
- * an email, and writes the found ones back.
+ * Find emails for contacts in the Contacts sheet. The server reads the sheet,
+ * calls Hunter (its key never touches the browser) for contacts missing an
+ * email, and writes the found ones back. Pass `account` to scope enrichment to
+ * one account's contacts; omit it to enrich the whole sheet.
  */
-export async function findEmails(token: string): Promise<FindEmailsResult> {
+export async function findEmails(token: string, account?: string): Promise<FindEmailsResult> {
   let res: Response;
   try {
     res = await fetch(`${CONFIG.apiBaseUrl}/api/find-emails`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ driveId: CONFIG.driveFolderId }),
+      body: JSON.stringify({ driveId: CONFIG.driveFolderId, ...(account ? { account } : {}) }),
     });
   } catch {
     throw new Error("Couldn't reach the server (it may be redeploying). Try again in a moment.");
