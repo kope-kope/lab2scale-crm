@@ -58,7 +58,8 @@ export function createApp(requireAuth: RequestHandler) {
   api.post("/find-companies", asyncFinder(handleFindCompanies)); // Stage 1
   api.post("/find-contacts", asyncFinder(handleFindContacts)); // Stage 2
 
-  // Lead qualifier — synchronous (one AI call over the rules, no web search).
+  // Lead qualifier — synchronous per lead (a web-search-grounded client screen;
+  // runs long, which is fine on Railway's long-lived process). One row per call.
   const leadRoute =
     (handler: (r: { authHeader?: string; body: unknown }) => Promise<{ status: number; body: unknown }>): RequestHandler =>
     (req, res) => {

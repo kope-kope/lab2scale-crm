@@ -12,7 +12,7 @@ const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 const DOC_MIME = "application/vnd.google-apps.document";
 
 const LEADS_FOLDER = "Leads";
-const RULES_DOC_NAME = "Lead qualification rules";
+const RULES_DOC_NAME = "Lab2Scale calibration notes";
 export const NOTE_HEADER = "Screen";
 
 function reasonFrom(body: string): string {
@@ -233,18 +233,39 @@ export async function deleteRow(
 function defaultRulesHtml(): string {
   return [
     "<h1>Lab2Scale calibration notes</h1>",
-    "<p>The deal-screen logic (mandate → dominant risk → proof → five-risk read → verdict) is built",
-    "into the screener. Add Lab2Scale-specific calibration here — it's applied on top of the screen.</p>",
-    "<h2>Mandate reminder</h2>",
-    "<p>Hardware deep-tech only: semiconductors, power &amp; energy generation, water generation,",
-    "storage &amp; batteries, and adjacent hard tech. Pure software / SaaS / consumer / fintech is a",
-    "fast Pass on mandate.</p>",
-    "<h2>Bar / calibration</h2>",
+    "<p>Leads are prospective <b>clients</b>, not investments. Lab2Scale takes hardware deep-tech",
+    "companies and drives their commercial path — first buyers, partnerships, non-dilutive + dilutive",
+    "capital — for a fee. The screen logic (research the facts → three client calls → verdict) is built",
+    "into the screener. Add Lab2Scale-specific calibration here — it's applied on top of every screen.</p>",
+    "<h2>What we are screening for</h2>",
+    "<p>The question is not &quot;is this a good company?&quot; It is &quot;should we take them on as a",
+    "client, and can we get paid?&quot; That turns on three calls a VC lens misses:</p>",
+    "<ol>",
+    "<li><b>Can commercial work move the dominant risk?</b> If the thing most likely to kill the company",
+    "is pure science/physics, our BD / partnership / capital work can't touch it — not a client for us.</li>",
+    "<li><b>Is there a fee-able commercial event?</b> A first contract, a partnership, or a raise we could",
+    "drive and earn on. No near-term event we get paid on → no engagement.</li>",
+    "<li><b>Client fit / genuine need.</b> An already-scaled, well-funded company runs its own commercial",
+    "machine and does not need us — a Pass on FIT even when the technology is excellent.</li>",
+    "</ol>",
+    "<h2>Sector</h2>",
+    "<p>Hardware deep-tech only: semiconductors, power &amp; energy generation, water generation, storage",
+    "&amp; batteries, and adjacent hard tech. Pure software / SaaS / consumer / fintech is a fast Pass on",
+    "sector.</p>",
+    "<h2>Calibration records (named past decisions)</h2>",
+    "<p>These anchor the bar. Add real decisions over time.</p>",
     "<ul>",
-    "<li>Prefer demonstrated technology (roughly TRL 4+); pure concept-stage usually Gates at best.</li>",
-    "<li>Weigh the internal relevance score, but the two calls (dominant risk, proof) decide the verdict.</li>",
-    "<li>Add named past decisions here over time so the screener calibrates to the real Lab2Scale bar.</li>",
+    "<li><b>Apollo — Pursue (Combined).</b> Hardware deep-tech at a stage where commercial work clearly",
+    "moves the needle: an identifiable first buyer, a fee-able first-contract + raise, and a genuine need",
+    "for outside commercial muscle. This is the shape of a good client.</li>",
+    "<li><b>Emergence — Pursue.</b> In-sector, early enough that a Lab2Scale commercialization engagement",
+    "creates real value, with a concrete near-term commercial event to earn on.</li>",
+    "<li><b>Overland-type (large, well-funded, already scaling) — Pass on client-fit.</b> Even when the",
+    "technology is strong and in an adjacent hard-tech area, a company that has already raised large rounds",
+    "and built its own commercial organization does not need us. Great company, not our client.</li>",
     "</ul>",
+    "<p><i>Replace the Apollo/Emergence lines with the real internal write-ups when ready; keep the",
+    "structure (name → verdict → the client-call that decided it).</i></p>",
   ].join("");
 }
 
@@ -255,7 +276,7 @@ export async function findOrCreateRulesDoc(
   leadsFolderId: string,
 ): Promise<{ text: string; url: string; created: boolean }> {
   const docs = await listChildren(token, driveId, leadsFolderId, DOC_MIME);
-  const existing = docs.find((d) => /qualif|rules/i.test(d.name));
+  const existing = docs.find((d) => /qualif|rules|calibration/i.test(d.name));
   if (existing) {
     const res = await fetch(
       `${DRIVE}/files/${existing.id}/export?mimeType=${encodeURIComponent("text/plain")}`,

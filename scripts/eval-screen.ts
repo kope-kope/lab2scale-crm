@@ -1,9 +1,10 @@
 /**
- * Eval harness for the Lab2Scale Deal Screen.
+ * Eval harness for the Lab2Scale Client Qualification Screen.
  *
  * Runs the screener over fixture leads with known-correct calls and checks it
- * holds the standard: right mandate call, a singular dominant risk, a proof, a
- * decisive verdict, no hedging. Run:
+ * holds the standard: right sector call, a singular dominant risk, the client
+ * calls (commercial-movability, fee-able event, client fit), a decisive verdict,
+ * no hedging. The screener runs LIVE web search, so this makes real API calls.
  *
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx scripts/eval-screen.ts
  */
@@ -20,16 +21,34 @@ const has = (s: string, re: RegExp) => re.test(s);
 
 const FIXTURES: Fixture[] = [
   {
+    // Real, large, well-funded deep-tech — the "Overland" case. Strong tech, but
+    // already scaled: a Pass on CLIENT FIT, not on sector or technology.
+    lead: {
+      company: "Overland AI",
+      sector: "Autonomy / defense hardware",
+      relevance: "8.0",
+      whyItFits: "Autonomy stack for uncrewed ground vehicles; defense customers.",
+    },
+    expect: (s) => [
+      { name: "verdict Pass", pass: s.verdict === "Pass" },
+      {
+        name: "passed on client-fit (already scaled), not tech",
+        pass:
+          has(s.clientFit + " " + s.verdictReason, /scal|funded|raised|large|series [b-z]|own commercial|doesn'?t need|do not need/i),
+      },
+    ],
+  },
+  {
     lead: {
       company: "CarbonCore Batteries",
       sector: "Storage & Batteries",
       stage: "TRL 6",
       relevance: "8.6",
-      whyItFits: "Solid-state battery maker with a running pilot line; targeting grid + EV.",
+      whyItFits: "Early solid-state battery maker with a running pilot line; targeting grid + EV. No large funding round yet.",
     },
     expect: (s) => [
-      { name: "mandate IN (hardware)", pass: startsWith(s.mandateFit, "in") },
-      { name: "not a mandate Pass", pass: !(s.verdict === "Pass" && has(s.mandateFit, /out/i)) },
+      { name: "sector IN (hardware)", pass: startsWith(s.sectorFit, "in") },
+      { name: "not a sector Pass", pass: !(s.verdict === "Pass" && has(s.sectorFit, /out/i)) },
     ],
   },
   {
@@ -41,8 +60,8 @@ const FIXTURES: Fixture[] = [
       whyItFits: "B2B software dashboard for sales teams. Pure software, no hardware.",
     },
     expect: (s) => [
-      { name: "mandate OUT (software)", pass: startsWith(s.mandateFit, "out") },
-      { name: "verdict Pass on mandate", pass: s.verdict === "Pass" },
+      { name: "sector OUT (software)", pass: startsWith(s.sectorFit, "out") },
+      { name: "verdict Pass on sector", pass: s.verdict === "Pass" },
     ],
   },
   {
@@ -54,8 +73,8 @@ const FIXTURES: Fixture[] = [
       whyItFits: "Aneutronic fusion concept. No hardware demonstrator yet; physics unproven at scale.",
     },
     expect: (s) => [
-      { name: "mandate IN (energy hardware)", pass: startsWith(s.mandateFit, "in") },
-      { name: "not Pursue (too early)", pass: s.verdict !== "Pursue" },
+      { name: "sector IN (energy hardware)", pass: startsWith(s.sectorFit, "in") },
+      { name: "not Pursue (science risk commercial work can't move)", pass: s.verdict !== "Pursue" },
     ],
   },
   {
@@ -67,7 +86,7 @@ const FIXTURES: Fixture[] = [
       whyItFits: "Social app for pet owners. Consumer software.",
     },
     expect: (s) => [
-      { name: "mandate OUT (consumer software)", pass: startsWith(s.mandateFit, "out") },
+      { name: "sector OUT (consumer software)", pass: startsWith(s.sectorFit, "out") },
       { name: "verdict Pass", pass: s.verdict === "Pass" },
     ],
   },
@@ -77,25 +96,24 @@ const FIXTURES: Fixture[] = [
       sector: "Water generation",
       stage: "TRL 7, deployed pilots",
       relevance: "8.9",
-      whyItFits: "Atmospheric water generation hardware with paying pilot sites in arid regions.",
+      whyItFits: "Early atmospheric water generation hardware with paying pilot sites in arid regions; pre-Series A.",
     },
-    expect: (s) => [{ name: "mandate IN (water hardware)", pass: startsWith(s.mandateFit, "in") }],
+    expect: (s) => [{ name: "sector IN (water hardware)", pass: startsWith(s.sectorFit, "in") }],
   },
 ];
 
 function structural(s: Screen): { name: string; pass: boolean }[] {
-  const risks = [s.technology, s.market, s.manufacturing, s.capital, s.regulatory];
-  const substantive = risks.filter((r) => r.note.length > 10).length;
   const noHedge = !has(s.dominantRisk + " " + s.verdictReason, /\bmaybe\b|it depends|not sure/i);
   return [
     { name: "verdict is Pursue/Gate/Pass", pass: ["Pursue", "Gate", "Pass"].includes(s.verdict) },
+    { name: "sector fit called (In/Out)", pass: startsWith(s.sectorFit, "in") || startsWith(s.sectorFit, "out") },
     { name: "dominant risk present", pass: s.dominantRisk.length > 10 },
     { name: "dominant risk is singular", pass: !has(s.dominantRisk, /;.*;|\band also\b/i) },
+    { name: "commercial-movability call present", pass: s.commercialMovability.length > 10 },
+    { name: "fee-able event addressed", pass: s.feeEvent.length > 8 },
+    { name: "engagement type set", pass: ["Commercialization", "Capital", "Combined", "None"].includes(s.engagementType) },
+    { name: "client-fit call present", pass: s.clientFit.length > 10 },
     { name: "proof present", pass: s.proof.length > 10 },
-    // Every risk line has a weight; the read is substantive where it matters
-    // (off-mandate passes legitimately keep the hardware risks brief).
-    { name: "all risks weighted", pass: risks.every((r) => r.weight.length > 0) },
-    { name: "risk read substantive (>=3 real lines)", pass: substantive >= 3 },
     { name: "verdict reason present", pass: s.verdictReason.length > 8 },
     { name: "no hedging", pass: noHedge },
   ];
@@ -122,8 +140,9 @@ async function main(): Promise<void> {
       continue;
     }
     console.log(`  verdict: ${s.verdict} — ${s.verdictReason}`);
-    console.log(`  mandate: ${s.mandateFit}`);
+    console.log(`  sector: ${s.sectorFit}`);
     console.log(`  dominant risk: ${s.dominantRisk}`);
+    console.log(`  client fit: ${s.clientFit}`);
     const checks = [...structural(s), ...f.expect(s)];
     for (const c of checks) {
       console.log(`    ${c.pass ? "✓" : "✗"} ${c.name}`);

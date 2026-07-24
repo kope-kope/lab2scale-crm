@@ -11,9 +11,9 @@ import {
 import { screenLead, formatScreen, type LeadInput, type Screen } from "./screen.js";
 
 /**
- * Qualify leads by running the Lab2Scale Deal Screen on each and writing the
- * verdict (Pursue / Gate / Pass) to the Status column and the full screen to the
- * Screen column. Synchronous: one focused AI call per lead, no web search.
+ * Qualify leads by running the Lab2Scale Client Qualification Screen on each and
+ * writing the verdict (Pursue / Gate / Pass) to the Status column and the full
+ * screen to the Screen column. One web-search-grounded AI pass per lead.
  */
 
 interface Counts {
