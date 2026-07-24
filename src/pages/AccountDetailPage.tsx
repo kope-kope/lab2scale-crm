@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, FileText, Folder, ExternalLink } from "lucide-react";
+import { ArrowLeft, FileText, Folder, ExternalLink, Mail, Loader2 } from "lucide-react";
 import { Card, Table, type TableColumn, type TableRow } from "@/components/ds";
 import { ListState } from "@/components/ListState";
 import { useDriveData } from "@/data/DriveDataProvider";
 import { useAuth } from "@/auth/AuthProvider";
 import { listFolderFiles, CONTEXT_DOC_PREFIX, type DriveFile } from "@/lib/drive";
+import { findEmails } from "@/lib/enrich";
 import { FindContactsPanel } from "@/components/FindContactsPanel";
 import { CONFIG } from "@/config";
 
@@ -31,11 +32,16 @@ function BackLink() {
 export function AccountDetailPage() {
   const { id } = useParams();
   const { token } = useAuth();
-  const { data, loading: dataLoading } = useDriveData();
+  const { data, loading: dataLoading, reload } = useDriveData();
   const account = data?.accounts.find((a) => a.id === id);
 
   const [files, setFiles] = useState<DriveFile[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
+
+  // Per-account email enrichment (central Hunter function, scoped to this account).
+  const [enriching, setEnriching] = useState(false);
+  const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token || !id) return;
@@ -56,6 +62,29 @@ export function AccountDetailPage() {
     (c) => c.account === account?.name || c.company === account?.name,
   );
   const contextDoc = (files ?? []).find((f) => f.name.startsWith(CONTEXT_DOC_PREFIX));
+
+  async function findAccountEmails() {
+    if (!token || !account || enriching) return;
+    setEnriching(true);
+    setEnrichMsg(null);
+    setEnrichError(null);
+    try {
+      const r = await findEmails(token, account.name);
+      const notFound = r.results.filter((x) => x.outcome === "not_found").length;
+      const errored = r.results.filter((x) => x.outcome === "error").length;
+      const parts = [`Found ${r.found} email${r.found === 1 ? "" : "s"}`];
+      if (r.written) parts.push(`wrote ${r.written} to the sheet`);
+      if (r.skipped) parts.push(`${r.skipped} already had one`);
+      if (notFound) parts.push(`${notFound} not found`);
+      if (errored) parts.push(`${errored} errored`);
+      setEnrichMsg(`${parts.join(" · ")}. Checked ${r.total} contact${r.total === 1 ? "" : "s"}.`);
+      reload(); // re-read the Contacts sheet so filled emails show
+    } catch (e) {
+      setEnrichError(e instanceof Error ? e.message : "Couldn't find emails.");
+    } finally {
+      setEnriching(false);
+    }
+  }
 
   if (!dataLoading && !account) {
     return (
@@ -134,7 +163,25 @@ export function AccountDetailPage() {
           </ListState>
         </Card>
 
-        <Card title="Contacts">
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-h3 font-medium text-black">Contacts</span>
+            <button
+              onClick={() => void findAccountEmails()}
+              disabled={enriching || !token}
+              title={`Find emails for ${account?.name ?? "this account"}'s contacts (via Hunter) and write them to the sheet`}
+              className="inline-flex items-center gap-1.5 rounded-control px-2 py-1 text-small text-action transition-colors ease-ds hover:bg-neutral-100 disabled:opacity-40"
+            >
+              {enriching ? (
+                <Loader2 size={15} strokeWidth={1.5} className="animate-spin" />
+              ) : (
+                <Mail size={15} strokeWidth={1.5} />
+              )}
+              Find emails
+            </button>
+          </div>
+          {enrichMsg && <p className="mb-3 text-small text-muted">{enrichMsg}</p>}
+          {enrichError && <p className="mb-3 text-small text-danger-text">{enrichError}</p>}
           <ListState
             loading={dataLoading}
             error={null}
