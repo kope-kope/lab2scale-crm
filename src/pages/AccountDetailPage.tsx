@@ -172,11 +172,15 @@ export function AccountDetailPage() {
         <Card>
           <div className="mb-3 flex items-center justify-between gap-3">
             <span className="text-h3 font-medium text-black">Contacts</span>
-            {missingEmail.length > 0 && (
+            {contacts.length > 0 && (
               <button
                 onClick={() => void findEmails()}
-                disabled={enriching}
-                title={`Find emails for ${missingEmail.length} contact${missingEmail.length === 1 ? "" : "s"} via Hunter`}
+                disabled={enriching || missingEmail.length === 0}
+                title={
+                  missingEmail.length === 0
+                    ? "Every linked contact already has an email."
+                    : `Find emails for ${missingEmail.length} contact${missingEmail.length === 1 ? "" : "s"} via Hunter`
+                }
                 className="inline-flex items-center gap-1.5 rounded-control px-2 py-1 text-small text-action transition-colors ease-ds hover:bg-neutral-100 disabled:opacity-40"
               >
                 {enriching ? (
@@ -184,7 +188,7 @@ export function AccountDetailPage() {
                 ) : (
                   <Mail size={15} strokeWidth={1.5} />
                 )}
-                Find emails ({missingEmail.length})
+                {missingEmail.length > 0 ? `Find emails (${missingEmail.length})` : "Find emails"}
               </button>
             )}
           </div>
