@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleFindCompanies, handleFindContacts, type FinderRequest, type FinderResponse } from "./finder/handle.js";
 import { handleQualifyLead, handleDeleteLead, handleScreenPreview } from "./leads/handle.js";
+import { handleFindEmails } from "./enrich/handle.js";
 import { corsMiddleware } from "./http/cors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,6 +76,10 @@ export function createApp(requireAuth: RequestHandler) {
   api.post("/qualify-lead", leadRoute(handleQualifyLead)); // one row
   api.post("/delete-lead", leadRoute(handleDeleteLead)); // one row (destructive)
   api.post("/screen-preview", leadRoute(handleScreenPreview)); // sandbox — reads/writes nothing
+
+  // Contact enrichment — find emails via Hunter (server-side key), write them
+  // back to the Contacts sheet. Runs its own Google-domain check, so pre-gate.
+  api.post("/find-emails", leadRoute(handleFindEmails));
 
   // The gate. Every route below this line requires a verified, allowed account.
   api.use(requireAuth);
