@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Sparkles, ExternalLink, Trash2, Loader2 } from "lucide-react";
-import { Badge, Button, Table, type BadgeRole, type TableColumn, type TableRow } from "@/components/ds";
+import { Badge, Table, type BadgeRole, type TableColumn, type TableRow } from "@/components/ds";
 import { ListState } from "@/components/ListState";
 import { useDriveData } from "@/data/DriveDataProvider";
 import { useAuth } from "@/auth/AuthProvider";
-import { qualifyLeads, qualifyLead, deleteLead, type QualifyResult } from "@/lib/leads";
+import { qualifyLead, deleteLead } from "@/lib/leads";
 
 const COLUMNS: TableColumn[] = [
   { key: "company", label: "Company" },
@@ -29,27 +29,9 @@ export function LeadsPage() {
   const { token } = useAuth();
   const leads = data?.leads ?? [];
 
-  const [qualifying, setQualifying] = useState(false);
-  const [result, setResult] = useState<QualifyResult | null>(null);
   const [qualifyError, setQualifyError] = useState<string | null>(null);
   // Which row is mid-action (keyed by company), and what it's doing.
   const [busyRow, setBusyRow] = useState<{ company: string; action: "qualify" | "delete" } | null>(null);
-
-  async function qualify() {
-    if (!token) return;
-    setQualifying(true);
-    setQualifyError(null);
-    setResult(null);
-    try {
-      const res = await qualifyLeads(token);
-      setResult(res);
-      reload(); // pull the updated statuses back from the sheet
-    } catch (e) {
-      setQualifyError(e instanceof Error ? e.message : "Couldn't qualify leads.");
-    } finally {
-      setQualifying(false);
-    }
-  }
 
   async function qualifyRow(company: string, rowIndex: number) {
     if (!token) return;
@@ -80,7 +62,7 @@ export function LeadsPage() {
     }
   }
 
-  const anyBusy = qualifying || busyRow !== null;
+  const anyBusy = busyRow !== null;
   const rows: TableRow[] = leads.map((l, i) => {
     const busy = busyRow?.company === l.company;
     return {
@@ -182,47 +164,9 @@ export function LeadsPage() {
             </div>
           )}
         </div>
-        <Button onClick={() => void qualify()} disabled={anyBusy || leads.length === 0}>
-          <Sparkles size={16} strokeWidth={1.5} />
-          {qualifying ? "Qualifying…" : "Qualify all"}
-        </Button>
       </header>
 
       {qualifyError && <p className="mb-4 text-small text-danger-text">{qualifyError}</p>}
-
-      {result && (
-        <div className="mb-4 rounded-card border border-border bg-surface p-4">
-          <p className="text-small text-body">
-            Screened {result.total}: <strong>{result.pursue}</strong> Pursue ·{" "}
-            <strong>{result.gate}</strong> Gate · <strong>{result.pass}</strong> Pass. Verdicts and
-            full screens written to the sheet.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-4 text-small">
-            {result.sheetUrl && (
-              <a
-                href={result.sheetUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-action"
-              >
-                <ExternalLink size={16} strokeWidth={1.5} />
-                Open the Leads sheet
-              </a>
-            )}
-            {result.rulesUrl && (
-              <a
-                href={result.rulesUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-action"
-              >
-                <ExternalLink size={16} strokeWidth={1.5} />
-                {result.rulesCreated ? "Rules doc (just created — edit it)" : "Edit the rules"}
-              </a>
-            )}
-          </div>
-        </div>
-      )}
 
       <ListState
         loading={loading}

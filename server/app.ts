@@ -3,7 +3,7 @@ import compression from "compression";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleFindCompanies, handleFindContacts, type FinderRequest, type FinderResponse } from "./finder/handle.js";
-import { handleQualifyLeads, handleQualifyLead, handleDeleteLead } from "./leads/handle.js";
+import { handleQualifyLead, handleDeleteLead } from "./leads/handle.js";
 import { corsMiddleware } from "./http/cors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -71,7 +71,6 @@ export function createApp(requireAuth: RequestHandler) {
         });
     };
 
-  api.post("/qualify-leads", leadRoute(handleQualifyLeads)); // whole sheet
   api.post("/qualify-lead", leadRoute(handleQualifyLead)); // one row
   api.post("/delete-lead", leadRoute(handleDeleteLead)); // one row (destructive)
 

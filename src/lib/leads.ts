@@ -41,12 +41,7 @@ function toResult(data: Partial<QualifyResult>): QualifyResult {
   };
 }
 
-/** Qualify every lead against the rules doc and write the verdicts back. */
-export async function qualifyLeads(token: string): Promise<QualifyResult> {
-  return toResult(await post<Partial<QualifyResult>>("/api/qualify-leads", token, {}));
-}
-
-/** Qualify a single lead (skip the obviously-good/bad ones from a full run). */
+/** Qualify a single lead against the rules doc and write the verdict back. */
 export async function qualifyLead(
   token: string,
   company: string,
