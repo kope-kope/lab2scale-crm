@@ -1,5 +1,6 @@
 import { emailFinder, hunterConfigured, HunterError } from "./hunter.js";
 import { readContactsGrid, writeEmails, columnIndex } from "./contactsSheet.js";
+import { readAccountContacts, writeContactEmails, headerIndex } from "./accountContacts.js";
 
 /**
  * Find emails for the contacts in the Contacts sheet (LAB-34).
@@ -156,6 +157,99 @@ export async function handleFindEmails(req: FindEmailsRequest): Promise<FindEmai
     return {
       status: 200,
       body: { results, total: results.length, found, written, skipped, sheetUrl: grid.sheetUrl },
+    };
+  } catch (err) {
+    if (err instanceof HttpError) return { status: err.status, body: { error: err.message } };
+    if (err instanceof HunterError) return { status: err.status, body: { error: err.message } };
+    if (err instanceof Error) return { status: 502, body: { error: err.message } };
+    return { status: 500, body: { error: "Something went wrong finding emails." } };
+  }
+}
+
+// ── Per-account: enrich the finder's "<Account> — contacts" sheet ────────────
+
+/**
+ * Find emails for every row in an account's finder contacts sheet
+ * ("<Account> — contacts"), and write them into that sheet's Email column.
+ * This is the sheet the "Find contacts with AI" step writes to — distinct from
+ * the central Contacts sheet.
+ */
+export async function handleFindContactEmails(req: FindEmailsRequest): Promise<FindEmailsResponse> {
+  if (!hunterConfigured()) {
+    return { status: 500, body: { error: "Email enrichment isn't configured — set HUNTER_API_KEY on the server (Railway)." } };
+  }
+  const token = (req.authHeader ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return { status: 401, body: { error: "Missing sign-in token." } };
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const driveId = str(body.driveId);
+  const accountName = str(body.accountName);
+  const accountFolderId = str(body.accountFolderId);
+  if (!driveId) return { status: 400, body: { error: "Missing drive id." } };
+  if (!accountName) return { status: 400, body: { error: "Missing account name." } };
+  if (!accountFolderId) return { status: 400, body: { error: "Missing account folder id." } };
+
+  try {
+    await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
+
+    const sheet = await readAccountContacts(token, driveId, accountFolderId, accountName);
+    if (!sheet) {
+      return {
+        status: 404,
+        body: { error: 'No contacts sheet for this account yet — run "Find contacts for approved" first.' },
+      };
+    }
+
+    const nameIdx = headerIndex(sheet.headers, ["name"]);
+    const companyIdx = headerIndex(sheet.headers, ["company"]);
+    let emailIdx = headerIndex(sheet.headers, ["email"]);
+    if (emailIdx < 0) emailIdx = 3; // finder layout: Name, Title, Company, Email, …
+    if (nameIdx < 0) {
+      return { status: 422, body: { error: "That contacts sheet has no Name column to look up." } };
+    }
+
+    const cell = (row: string[], i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
+
+    const results: EmailResult[] = [];
+    const updates: { rowNumber: number; email: string }[] = [];
+    let stopped = false;
+
+    for (let i = 0; i < sheet.rows.length; i++) {
+      const row = sheet.rows[i];
+      const name = cell(row, nameIdx);
+      if (!name) continue;
+      const company = cell(row, companyIdx) || accountName;
+      const existing = cell(row, emailIdx);
+      if (existing) {
+        results.push({ name, company, email: existing, score: null, outcome: "skipped" });
+        continue;
+      }
+      if (stopped) {
+        results.push({ name, company, email: null, score: null, outcome: "error", message: "Stopped after a Hunter error." });
+        continue;
+      }
+      try {
+        const found = await emailFinder({ fullName: name, company: company || undefined });
+        if (found.email) {
+          updates.push({ rowNumber: sheet.firstDataRow + i, email: found.email });
+          results.push({ name, company, email: found.email, score: found.score, outcome: "found" });
+        } else {
+          results.push({ name, company, email: null, score: null, outcome: "not_found" });
+        }
+      } catch (e) {
+        const message = e instanceof HunterError ? e.message : e instanceof Error ? e.message : "Lookup failed.";
+        results.push({ name, company, email: null, score: null, outcome: "error", message });
+        if (e instanceof HunterError && (e.status === 401 || e.status === 429)) stopped = true;
+      }
+    }
+
+    const written = updates.length > 0 ? await writeContactEmails(token, sheet.sheetId, emailIdx, updates) : 0;
+    const found = results.filter((r) => r.outcome === "found").length;
+    const skipped = results.filter((r) => r.outcome === "skipped").length;
+
+    return {
+      status: 200,
+      body: { results, total: results.length, found, written, skipped, sheetUrl: sheet.sheetUrl },
     };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { error: err.message } };

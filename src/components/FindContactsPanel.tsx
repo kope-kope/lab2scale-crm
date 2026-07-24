@@ -1,8 +1,14 @@
 import { useState } from "react";
-import { Sparkles, Users, ExternalLink } from "lucide-react";
+import { Sparkles, Users, Mail, ExternalLink } from "lucide-react";
 import { Button, Card } from "@/components/ds";
 import { useAuth } from "@/auth/AuthProvider";
-import { startFindCompanies, startFindContacts, type FinderStarted } from "@/lib/finder";
+import {
+  startFindCompanies,
+  startFindContacts,
+  findContactEmails,
+  type FinderStarted,
+  type ContactEmailsResult,
+} from "@/lib/finder";
 
 /**
  * The two-stage AI finder (LAB-25/26/27/30).
@@ -20,8 +26,9 @@ export function FindContactsPanel({
   accountFolderId: string;
 }) {
   const { token } = useAuth();
-  const [busy, setBusy] = useState<null | "companies" | "contacts">(null);
+  const [busy, setBusy] = useState<null | "companies" | "contacts" | "emails">(null);
   const [result, setResult] = useState<(FinderStarted & { kind: "companies" | "contacts" }) | null>(null);
+  const [emails, setEmails] = useState<(ContactEmailsResult & { done: true }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function go(kind: "companies" | "contacts") {
@@ -37,6 +44,21 @@ export function FindContactsPanel({
       setResult({ ...res, kind });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start the finder.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function goEmails() {
+    if (!token) return;
+    setBusy("emails");
+    setError(null);
+    setEmails(null);
+    try {
+      const res = await findContactEmails(token, { accountName, accountFolderId });
+      setEmails({ ...res, done: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't find emails.");
     } finally {
       setBusy(null);
     }
@@ -60,9 +82,41 @@ export function FindContactsPanel({
           <Users size={16} strokeWidth={1.5} />
           {busy === "contacts" ? "Starting…" : "2 · Find contacts for approved"}
         </Button>
+        <Button variant="secondary" onClick={() => void goEmails()} disabled={busy !== null}>
+          <Mail size={16} strokeWidth={1.5} />
+          {busy === "emails" ? "Finding emails…" : "3 · Find emails"}
+        </Button>
       </div>
 
       {error && <p className="mt-4 text-small text-danger-text">{error}</p>}
+
+      {emails && (
+        <div className="mt-4 rounded-card border border-border bg-surface p-4">
+          <p className="text-small text-body">
+            {(() => {
+              const notFound = emails.results.filter((r) => r.outcome === "not_found").length;
+              const errored = emails.results.filter((r) => r.outcome === "error").length;
+              const parts = [`Found ${emails.found} email${emails.found === 1 ? "" : "s"}`];
+              if (emails.written) parts.push(`wrote ${emails.written} to the sheet`);
+              if (emails.skipped) parts.push(`${emails.skipped} already had one`);
+              if (notFound) parts.push(`${notFound} not found`);
+              if (errored) parts.push(`${errored} errored`);
+              return `${parts.join(" · ")}. Checked ${emails.total} contact${emails.total === 1 ? "" : "s"}.`;
+            })()}
+          </p>
+          {emails.sheetUrl && (
+            <a
+              href={emails.sheetUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center gap-1.5 text-small text-action"
+            >
+              <ExternalLink size={16} strokeWidth={1.5} />
+              Open the contacts sheet
+            </a>
+          )}
+        </div>
+      )}
 
       {result && (
         <div className="mt-4 rounded-card border border-border bg-surface p-4">
