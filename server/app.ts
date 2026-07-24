@@ -58,6 +58,7 @@ export function createApp(requireAuth: RequestHandler) {
 
   api.post("/find-companies", asyncFinder(handleFindCompanies)); // Stage 1
   api.post("/find-contacts", asyncFinder(handleFindContacts)); // Stage 2
+  api.post("/find-contact-emails", asyncFinder(handleFindContactEmails)); // Stage 3: enrich emails
 
   // Lead qualifier — synchronous per lead (a web-search-grounded client screen;
   // runs long, which is fine on Railway's long-lived process). One row per call.
@@ -79,8 +80,7 @@ export function createApp(requireAuth: RequestHandler) {
 
   // Contact enrichment — find emails via Hunter (server-side key), write them
   // back to the Contacts sheet. Runs its own Google-domain check, so pre-gate.
-  api.post("/find-emails", leadRoute(handleFindEmails)); // central Contacts sheet
-  api.post("/find-contact-emails", leadRoute(handleFindContactEmails)); // an account's finder contacts sheet
+  api.post("/find-emails", leadRoute(handleFindEmails)); // central Contacts sheet (sync)
 
   // The gate. Every route below this line requires a verified, allowed account.
   api.use(requireAuth);

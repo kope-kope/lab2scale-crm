@@ -54,15 +54,21 @@ async function get<T>(path: string, params: Record<string, string | undefined>):
   try {
     res = await fetch(`${BASE}/${path}?${qs.toString()}`);
   } catch {
+    // eslint-disable-next-line no-console
+    console.error(`[hunter] ${path} network error`);
     throw new HunterError(502, "Couldn't reach Hunter.io. Try again in a moment.");
   }
 
   const json = (await res.json().catch(() => ({}))) as { data?: T } & HunterErrorBody;
   if (!res.ok) {
     const detail = json.errors?.map((e) => e.details).filter(Boolean).join("; ");
+    // eslint-disable-next-line no-console
+    console.error(`[hunter] ${path} → ${res.status} ${detail || "(no detail)"}`);
     // 401 = bad key, 429 = rate/quota — surface Hunter's own message when present.
     throw new HunterError(res.status, detail || `Hunter request failed (${res.status}).`);
   }
+  // eslint-disable-next-line no-console
+  console.log(`[hunter] ${path} → 200 ok`);
   return json.data as T;
 }
 
@@ -149,12 +155,15 @@ export interface DomainPerson {
 export interface DomainResult {
   domain: string | null;
   organization: string | null;
+  /** Hunter's detected address pattern, e.g. "{first}.{last}" or "{f}{last}". */
+  pattern: string | null;
   people: DomainPerson[];
 }
 
 interface DomainRaw {
   domain?: string | null;
   organization?: string | null;
+  pattern?: string | null;
   emails?: {
     value: string;
     first_name?: string | null;
@@ -184,6 +193,7 @@ export async function domainSearch(input: {
   return {
     domain: raw.domain ?? null,
     organization: raw.organization ?? null,
+    pattern: raw.pattern ?? null,
     people: (raw.emails ?? []).map((e) => ({
       email: e.value,
       firstName: e.first_name ?? null,
