@@ -161,6 +161,17 @@ export function LeadsPage() {
               ? "Loading from Drive…"
               : `${leads.length} prospective ${leads.length === 1 ? "company" : "companies"}, read live from the Leads sheet.`}
           </p>
+          {data?.leadsSheetUrl && (
+            <a
+              href={data.leadsSheetUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-flex items-center gap-1.5 text-small text-action"
+            >
+              <ExternalLink size={16} strokeWidth={1.5} />
+              Open the Leads sheet
+            </a>
+          )}
           {!loading && leads.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {tallyKeys.map((k) => (

@@ -12,11 +12,18 @@ export interface QualifyResult {
 }
 
 async function post<T>(path: string, token: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${CONFIG.apiBaseUrl}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ driveId: CONFIG.driveFolderId, ...body }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${CONFIG.apiBaseUrl}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ driveId: CONFIG.driveFolderId, ...body }),
+    });
+  } catch {
+    // fetch() throws (not an HTTP error) when the server is unreachable — e.g.
+    // Railway is redeploying. Make that legible instead of a raw "Failed to fetch".
+    throw new Error("Couldn't reach the server (it may be redeploying). Try again in a moment, or edit the Leads sheet directly.");
+  }
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status}).`);
   return data;
