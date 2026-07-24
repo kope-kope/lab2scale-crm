@@ -63,7 +63,7 @@ export function toLeads(values: readonly (readonly string[])[]): Lead[] {
       sourceUrl: pick(row, ["source url", "source", "url", "link"]),
       relevance: pick(row, ["relevance", "score"]),
       status: pick(row, ["status"]),
-      note: pick(row, ["qualification note", "note", "reason"]),
+      note: pick(row, ["screen", "qualification note", "note", "reason"]),
     }))
     .filter((l) => l.company);
 }
