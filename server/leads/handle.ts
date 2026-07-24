@@ -8,19 +8,45 @@ import {
   firstSheetGid,
   deleteRow,
 } from "./leadsSheet.js";
-import { qualifyLeads, type LeadInput } from "./qualifyLeads.js";
+import { screenLead, formatScreen, type LeadInput, type Screen } from "./screen.js";
 
 /**
- * Qualify all leads in one pass and write the verdicts back to the Leads sheet.
- * Synchronous: it's a single AI call over the rules (no web search), so it
- * returns the summary directly rather than running in the background.
+ * Qualify leads by running the Lab2Scale Deal Screen on each and writing the
+ * verdict (Pursue / Gate / Pass) to the Status column and the full screen to the
+ * Screen column. Synchronous: one focused AI call per lead, no web search.
  */
+
+interface Counts {
+  total: number;
+  pursue: number;
+  gate: number;
+  pass: number;
+}
 
 export interface QualifyResponse {
   status: number;
   body:
-    | { total: number; qualified: number; disqualified: number; sheetUrl: string; rulesUrl: string; rulesCreated: boolean }
+    | (Counts & { sheetUrl: string; rulesUrl: string; rulesCreated: boolean })
     | { error: string };
+}
+
+function countVerdicts(screens: Screen[]): Counts {
+  return {
+    total: screens.length,
+    pursue: screens.filter((s) => s.verdict === "Pursue").length,
+    gate: screens.filter((s) => s.verdict === "Gate").length,
+    pass: screens.filter((s) => s.verdict === "Pass").length,
+  };
+}
+
+/** Turn screens into the sheet-writeback shape (Status ← verdict, note ← screen). */
+function toRows(screens: Screen[], indexOf: (s: Screen) => number) {
+  return screens.map((s) => ({
+    index: indexOf(s),
+    company: s.company,
+    decision: s.verdict,
+    reason: formatScreen(s),
+  }));
 }
 
 const DEFAULT_DOMAIN = "lab-2-scale.com";
@@ -108,20 +134,23 @@ export async function handleQualifyLeads(req: QualifyRequest): Promise<QualifyRe
       }))
       .filter((l) => l.company);
 
-    const verdicts = await qualifyLeads(apiKey, rules.text, leads);
-    await writeVerdicts(token, sheet.sheetId, grid, verdicts);
+    // Screen each lead individually (a deal screen is a per-deal judgment).
+    const screens: Screen[] = [];
+    for (const lead of leads) {
+      try {
+        const s = await screenLead(apiKey, rules.text, lead);
+        screens.push({ ...s, company: lead.company });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error(`[leads] screen for "${lead.company}" failed:`, e);
+      }
+    }
+    const byCompany = new Map(leads.map((l) => [l.company, l.index] as const));
+    await writeVerdicts(token, sheet.sheetId, grid, toRows(screens, (s) => byCompany.get(s.company) ?? 0));
 
-    const qualified = verdicts.filter((v) => v.decision === "Qualified").length;
     return {
       status: 200,
-      body: {
-        total: verdicts.length,
-        qualified,
-        disqualified: verdicts.length - qualified,
-        sheetUrl: sheet.sheetUrl,
-        rulesUrl: rules.url,
-        rulesCreated: rules.created,
-      },
+      body: { ...countVerdicts(screens), sheetUrl: sheet.sheetUrl, rulesUrl: rules.url, rulesCreated: rules.created },
     };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { error: err.message } };
@@ -190,12 +219,11 @@ export async function handleQualifyLead(req: QualifyRequest): Promise<QualifyRes
       whyItFits: cell(idx(["why it fits", "why fits", "why", "rationale"])) || undefined,
       relevance: cell(idx(["relevance", "score"])) || undefined,
     };
-    const [verdict] = await qualifyLeads(apiKey, rules.text, [lead]);
-    if (!verdict) return { status: 502, body: { error: "The AI didn't return a verdict — try again." } };
-    await writeVerdicts(token, sheet.sheetId, grid, [verdict]);
+    const screen = await screenLead(apiKey, rules.text, lead);
+    await writeVerdicts(token, sheet.sheetId, grid, toRows([screen], () => di));
     return {
       status: 200,
-      body: { total: 1, qualified: verdict.decision === "Qualified" ? 1 : 0, disqualified: verdict.decision === "Qualified" ? 0 : 1, sheetUrl: sheet.sheetUrl, rulesUrl: rules.url, rulesCreated: rules.created },
+      body: { ...countVerdicts([screen]), sheetUrl: sheet.sheetUrl, rulesUrl: rules.url, rulesCreated: rules.created },
     };
   } catch (err) {
     return mapError(err);

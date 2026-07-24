@@ -11,15 +11,16 @@ const COLUMNS: TableColumn[] = [
   { key: "sector", label: "Sector" },
   { key: "stage", label: "Stage" },
   { key: "relevance", label: "Relevance" },
-  { key: "status", label: "Status" },
-  { key: "note", label: "Note" },
+  { key: "status", label: "Verdict" },
+  { key: "note", label: "Screen" },
   { key: "actions", label: "", width: "150px" },
 ];
 
 function statusRole(status?: string): BadgeRole {
   const s = (status ?? "").toLowerCase();
-  if (s.startsWith("qualif")) return "success";
-  if (s.startsWith("disqualif")) return "danger";
+  if (s.startsWith("pursue") || s.startsWith("qualif")) return "success";
+  if (s.startsWith("gate")) return "warning";
+  if (s.startsWith("pass") || s.startsWith("disqualif")) return "danger";
   return "neutral";
 }
 
@@ -98,7 +99,12 @@ export function LeadsPage() {
       stage: <span className="text-muted">{l.stage ?? ""}</span>,
       relevance: <span className="text-muted">{l.relevance ?? ""}</span>,
       status: l.status ? <Badge role={statusRole(l.status)}>{l.status}</Badge> : "",
-      note: <span className="text-small text-muted">{l.note ?? ""}</span>,
+      note: (
+        <span className="text-small text-muted" title={l.note ?? ""}>
+          {(l.note ?? "").replace(/\s+/g, " ").slice(0, 160)}
+          {(l.note ?? "").length > 160 ? "…" : ""}
+        </span>
+      ),
       actions: (
         <div className="flex items-center justify-end gap-1">
           <button
@@ -153,8 +159,9 @@ export function LeadsPage() {
       {result && (
         <div className="mb-4 rounded-card border border-border bg-surface p-4">
           <p className="text-small text-body">
-            Qualified <strong>{result.qualified}</strong> · Disqualified{" "}
-            <strong>{result.disqualified}</strong> of {result.total}. Statuses updated in the sheet.
+            Screened {result.total}: <strong>{result.pursue}</strong> Pursue ·{" "}
+            <strong>{result.gate}</strong> Gate · <strong>{result.pass}</strong> Pass. Verdicts and
+            full screens written to the sheet.
           </p>
           <div className="mt-2 flex flex-wrap gap-4 text-small">
             {result.sheetUrl && (

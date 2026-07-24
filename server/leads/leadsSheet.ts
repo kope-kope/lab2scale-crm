@@ -13,7 +13,7 @@ const DOC_MIME = "application/vnd.google-apps.document";
 
 const LEADS_FOLDER = "Leads";
 const RULES_DOC_NAME = "Lead qualification rules";
-export const NOTE_HEADER = "Qualification note";
+export const NOTE_HEADER = "Screen";
 
 function reasonFrom(body: string): string {
   try {
@@ -143,7 +143,7 @@ export async function writeVerdicts(
   const { headers, rows } = grid;
   const companyIdx = headerIndex(headers, ["company", "name"]);
   let statusIdx = headerIndex(headers, ["status"]);
-  let noteIdx = headerIndex(headers, [NOTE_HEADER.toLowerCase(), "note", "reason"]);
+  let noteIdx = headerIndex(headers, ["screen", "qualification note", "note", "reason"]);
 
   // Append Status / note headers if the sheet doesn't have them.
   let nextCol = headers.length;
@@ -232,23 +232,19 @@ export async function deleteRow(
 
 function defaultRulesHtml(): string {
   return [
-    "<h1>Lead qualification rules</h1>",
-    "<p>Edit these freely — the AI qualifier applies them to each lead. Be specific.</p>",
-    "<h2>Qualify a lead if</h2>",
+    "<h1>Lab2Scale calibration notes</h1>",
+    "<p>The deal-screen logic (mandate → dominant risk → proof → five-risk read → verdict) is built",
+    "into the screener. Add Lab2Scale-specific calibration here — it's applied on top of the screen.</p>",
+    "<h2>Mandate reminder</h2>",
+    "<p>Hardware deep-tech only: semiconductors, power &amp; energy generation, water generation,",
+    "storage &amp; batteries, and adjacent hard tech. Pure software / SaaS / consumer / fintech is a",
+    "fast Pass on mandate.</p>",
+    "<h2>Bar / calibration</h2>",
     "<ul>",
-    "<li>It's a deep-tech / hard-tech company (energy, nuclear, climate, advanced manufacturing, semiconductors, water, materials, robotics).</li>",
-    "<li>The technology is demonstrated — roughly TRL 4 or higher (a working prototype or pilot), not just a concept.</li>",
-    "<li>Relevance score is 7.0 or above (if a score is present).</li>",
-    "<li>It's a real, verifiable company that plausibly needs help going to market.</li>",
+    "<li>Prefer demonstrated technology (roughly TRL 4+); pure concept-stage usually Gates at best.</li>",
+    "<li>Weigh the internal relevance score, but the two calls (dominant risk, proof) decide the verdict.</li>",
+    "<li>Add named past decisions here over time so the screener calibrates to the real Lab2Scale bar.</li>",
     "</ul>",
-    "<h2>Disqualify a lead if</h2>",
-    "<ul>",
-    "<li>It's pure software / SaaS / consumer / fintech with no deep-tech core.</li>",
-    "<li>It's too early (pure research, no demonstrated technology) or relevance is below 7.0.</li>",
-    "<li>You can't tell what it does, or it clearly doesn't fit lab2scale's deep-tech focus.</li>",
-    "</ul>",
-    "<h2>Notes</h2>",
-    "<p>When unsure, lean Disqualified and say why — a human reviews the list.</p>",
   ].join("");
 }
 

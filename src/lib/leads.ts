@@ -3,8 +3,9 @@ import { CONFIG } from "@/config";
 
 export interface QualifyResult {
   total: number;
-  qualified: number;
-  disqualified: number;
+  pursue: number;
+  gate: number;
+  pass: number;
   sheetUrl: string;
   rulesUrl: string;
   rulesCreated: boolean;
@@ -24,8 +25,9 @@ async function post<T>(path: string, token: string, body: Record<string, unknown
 function toResult(data: Partial<QualifyResult>): QualifyResult {
   return {
     total: data.total ?? 0,
-    qualified: data.qualified ?? 0,
-    disqualified: data.disqualified ?? 0,
+    pursue: data.pursue ?? 0,
+    gate: data.gate ?? 0,
+    pass: data.pass ?? 0,
     sheetUrl: data.sheetUrl ?? "",
     rulesUrl: data.rulesUrl ?? "",
     rulesCreated: data.rulesCreated ?? false,
