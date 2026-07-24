@@ -97,6 +97,11 @@ function headerIndex(headers: string[], names: string[]): number {
   return headers.findIndex((h) => wanted.has(h.trim().toLowerCase()));
 }
 
+/** Public header→index lookup (case-insensitive), for callers reading the grid. */
+export function columnIndex(headers: string[], names: string[]): number {
+  return headerIndex(headers, names);
+}
+
 /**
  * Write emails back into the sheet's email column, keyed by contact id. Only
  * fills rows whose email cell is currently empty. Returns how many were written.

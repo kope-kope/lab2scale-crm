@@ -1,13 +1,14 @@
 import { emailFinder, hunterConfigured, HunterError } from "./hunter.js";
-import { readContactsGrid, writeEmails } from "./contactsSheet.js";
+import { readContactsGrid, writeEmails, columnIndex } from "./contactsSheet.js";
 
 /**
- * Find emails for an account's contacts (LAB-34).
+ * Find emails for the contacts in the Contacts sheet (LAB-34).
  *
- * Given an account and its contacts (name + id), ask Hunter for each person's
- * email at that company, write the found ones back into the Contacts sheet, and
- * return a per-contact result the UI can show. Contacts that already have an
- * email are skipped. One contact's failure never aborts the rest.
+ * The server reads the whole Contacts sheet — the source of truth — walks every
+ * contact, and for each one missing an email asks Hunter for it, then writes the
+ * found ones back into the sheet. Contacts that already have an email are left
+ * untouched (we never overwrite a human's entry, and it saves Hunter credits).
+ * One contact's failure never aborts the rest; a systemic 401/429 stops early.
  */
 
 const DEFAULT_DOMAIN = "lab-2-scale.com";
@@ -47,8 +48,8 @@ export interface FindEmailsRequest {
 }
 
 export interface EmailResult {
-  id: string;
   name: string;
+  company: string;
   email: string | null;
   score: number | null;
   /** "found" | "not_found" | "skipped" (already had one) | "error" */
@@ -59,93 +60,90 @@ export interface EmailResult {
 export interface FindEmailsResponse {
   status: number;
   body:
-    | { results: EmailResult[]; written: number; found: number; sheetUrl: string }
+    | { results: EmailResult[]; total: number; found: number; written: number; skipped: number; sheetUrl: string }
     | { error: string };
 }
 
-interface InContact {
-  id: string;
-  name: string;
-  company?: string;
-  hasEmail?: boolean;
-}
-
-function parse(req: FindEmailsRequest):
-  | { token: string; driveId: string; account: string; contacts: InContact[] }
-  | { error: FindEmailsResponse } {
+function parseDriveId(req: FindEmailsRequest): { token: string; driveId: string } | { error: FindEmailsResponse } {
   const token = (req.authHeader ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return { error: { status: 401, body: { error: "Missing sign-in token." } } };
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-  const driveId = str(body.driveId);
-  const account = str(body.account);
+  const driveId = typeof body.driveId === "string" ? body.driveId.trim() : "";
   if (!driveId) return { error: { status: 400, body: { error: "Missing drive id." } } };
-  if (!account) return { error: { status: 400, body: { error: "Missing account name." } } };
-  const raw = Array.isArray(body.contacts) ? body.contacts : [];
-  const contacts: InContact[] = raw
-    .map((c) => {
-      const o = (c ?? {}) as Record<string, unknown>;
-      return {
-        id: str(o.id),
-        name: str(o.name),
-        company: str(o.company) || undefined,
-        hasEmail: Boolean(o.hasEmail),
-      };
-    })
-    .filter((c) => c.id && c.name);
-  if (contacts.length === 0) {
-    return { error: { status: 400, body: { error: "No contacts with a name to look up." } } };
-  }
-  return { token, driveId, account, contacts };
+  return { token, driveId };
 }
 
+/**
+ * Enrich every contact in the Contacts sheet. Reads the sheet, finds emails for
+ * the ones without, and writes them back.
+ */
 export async function handleFindEmails(req: FindEmailsRequest): Promise<FindEmailsResponse> {
   if (!hunterConfigured()) {
     return { status: 500, body: { error: "Email enrichment isn't configured — set HUNTER_API_KEY on the server (Railway)." } };
   }
-  const parsed = parse(req);
+  const parsed = parseDriveId(req);
   if ("error" in parsed) return parsed.error;
-  const { token, driveId, account, contacts } = parsed;
+  const { token, driveId } = parsed;
 
   try {
     await verifyGoogleDomain(token, (process.env.ALLOWED_DOMAIN || DEFAULT_DOMAIN).trim());
 
+    const grid = await readContactsGrid(token, driveId, driveId);
+    const idIdx = columnIndex(grid.headers, ["id"]);
+    const nameIdx = columnIndex(grid.headers, ["name"]);
+    const emailIdx = columnIndex(grid.headers, ["email"]);
+    const companyIdx = columnIndex(grid.headers, ["company"]);
+    const accountIdx = columnIndex(grid.headers, ["account"]);
+    if (nameIdx < 0) {
+      return { status: 422, body: { error: "The Contacts sheet has no name column to look up." } };
+    }
+
+    const cell = (row: string[], i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
+
     const results: EmailResult[] = [];
     const emailById = new Map<string, string>();
+    let stopped = false;
 
-    for (const c of contacts) {
-      if (c.hasEmail) {
-        results.push({ id: c.id, name: c.name, email: null, score: null, outcome: "skipped" });
+    for (const row of grid.rows) {
+      const name = cell(row, nameIdx);
+      if (!name) continue; // blank row
+      const company = cell(row, companyIdx) || cell(row, accountIdx);
+      const existing = cell(row, emailIdx);
+      const id = cell(row, idIdx);
+
+      if (existing) {
+        results.push({ name, company, email: existing, score: null, outcome: "skipped" });
+        continue;
+      }
+      if (stopped) {
+        results.push({ name, company, email: null, score: null, outcome: "error", message: "Stopped after a Hunter error." });
         continue;
       }
       try {
-        // The contact's employer is their own company when set, else the account.
-        const found = await emailFinder({ fullName: c.name, company: c.company || account });
+        const found = await emailFinder({ fullName: name, company: company || undefined });
         if (found.email) {
-          emailById.set(c.id, found.email);
-          results.push({ id: c.id, name: c.name, email: found.email, score: found.score, outcome: "found" });
+          if (id) emailById.set(id, found.email);
+          results.push({ name, company, email: found.email, score: found.score, outcome: "found" });
         } else {
-          results.push({ id: c.id, name: c.name, email: null, score: null, outcome: "not_found" });
+          results.push({ name, company, email: null, score: null, outcome: "not_found" });
         }
       } catch (e) {
         const message = e instanceof HunterError ? e.message : e instanceof Error ? e.message : "Lookup failed.";
-        results.push({ id: c.id, name: c.name, email: null, score: null, outcome: "error", message });
-        // A 401/429 is systemic — stop hammering Hunter for the rest.
-        if (e instanceof HunterError && (e.status === 401 || e.status === 429)) break;
+        results.push({ name, company, email: null, score: null, outcome: "error", message });
+        // 401 (bad key) / 429 (quota or restricted) is systemic — stop looking up
+        // the rest, but still report them so the count is honest.
+        if (e instanceof HunterError && (e.status === 401 || e.status === 429)) stopped = true;
       }
     }
 
-    // Write whatever we found back into the sheet (empty cells only).
-    let written = 0;
-    let sheetUrl = "";
-    if (emailById.size > 0) {
-      const grid = await readContactsGrid(token, driveId, driveId);
-      sheetUrl = grid.sheetUrl;
-      written = await writeEmails(token, grid, emailById);
-    }
-
+    const written = emailById.size > 0 ? await writeEmails(token, grid, emailById) : 0;
     const found = results.filter((r) => r.outcome === "found").length;
-    return { status: 200, body: { results, written, found, sheetUrl } };
+    const skipped = results.filter((r) => r.outcome === "skipped").length;
+
+    return {
+      status: 200,
+      body: { results, total: results.length, found, written, skipped, sheetUrl: grid.sheetUrl },
+    };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { error: err.message } };
     if (err instanceof HunterError) return { status: err.status, body: { error: err.message } };
