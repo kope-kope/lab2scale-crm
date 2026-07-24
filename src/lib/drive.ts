@@ -105,6 +105,8 @@ export interface DriveData {
   accounts: Account[];
   contacts: Contact[];
   leads: Lead[];
+  /** Link to the Leads spreadsheet (for the "Open sheet" action / manual edits). */
+  leadsSheetUrl?: string;
 }
 
 /** `topFolderId` is the Shared Drive id (also the driveId scope). */
@@ -115,24 +117,32 @@ export async function readAll(token: string, topFolderId: string): Promise<Drive
     findFolder(token, topFolderId, topFolderId, AREA_FOLDERS.contacts),
   ]);
 
-  const [accountFolders, leads, contacts] = await Promise.all([
+  const [accountFolders, leadsRes, contacts] = await Promise.all([
     accountsArea ? listChildren(token, topFolderId, accountsArea.id, FOLDER_MIME) : Promise.resolve([]),
-    leadsArea ? readLeads(token, topFolderId, leadsArea.id) : Promise.resolve([]),
+    leadsArea
+      ? readLeads(token, topFolderId, leadsArea.id)
+      : Promise.resolve<{ leads: Lead[]; sheetUrl?: string }>({ leads: [] }),
     contactsArea ? readContacts(token, topFolderId, contactsArea.id) : Promise.resolve([]),
   ]);
 
   return {
     accounts: accountFolders.map((f) => ({ id: f.id, name: f.name })),
-    leads,
+    leads: leadsRes.leads,
+    leadsSheetUrl: leadsRes.sheetUrl,
     contacts,
   };
 }
 
-/** Read the first spreadsheet inside the Leads folder into typed leads. */
-async function readLeads(token: string, driveId: string, leadsFolderId: string): Promise<Lead[]> {
+/** Read the first spreadsheet inside the Leads folder; also return its link. */
+async function readLeads(
+  token: string,
+  driveId: string,
+  leadsFolderId: string,
+): Promise<{ leads: Lead[]; sheetUrl?: string }> {
   const sheet = (await listChildren(token, driveId, leadsFolderId, SHEET_MIME))[0];
-  if (!sheet) return [];
-  return toLeads(parseCsv(await exportCsv(token, sheet.id)));
+  if (!sheet) return { leads: [] };
+  const leads = toLeads(parseCsv(await exportCsv(token, sheet.id)));
+  return { leads, sheetUrl: sheet.webViewLink };
 }
 
 /** Read the first spreadsheet inside the Contacts folder into typed contacts. */
