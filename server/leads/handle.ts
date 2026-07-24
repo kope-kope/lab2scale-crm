@@ -117,6 +117,8 @@ function parseRow(req: QualifyRequest): { token: string; row: RowRequest } | { e
 function mapError(err: unknown): QualifyResponse {
   if (err instanceof HttpError) return { status: err.status, body: { error: err.message } };
   if (err instanceof Anthropic.APIError) {
+    // eslint-disable-next-line no-console
+    console.error(`[anthropic] request failed (${err.status ?? "?"}): ${err.message}`);
     const status = err.status && err.status >= 400 && err.status < 500 ? err.status : 502;
     return { status, body: { error: `The AI request failed (${err.status ?? "?"}). ${err.message}` } };
   }

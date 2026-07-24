@@ -40,6 +40,8 @@ async function google(url: string, token: string, init?: RequestInit): Promise<u
   });
   if (!res.ok) {
     const detail = reasonFrom(await res.text().catch(() => ""));
+    // eslint-disable-next-line no-console
+    console.error(`[drive] ${init?.method ?? "GET"} ${url.split("?")[0]} → Google API ${res.status}.${detail}`);
     throw new Error(`Google API ${res.status}.${detail}`);
   }
   return res.json();

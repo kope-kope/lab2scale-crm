@@ -28,7 +28,12 @@ async function google(url: string, token: string, init?: RequestInit): Promise<u
       ...(init?.headers ?? {}),
     },
   });
-  if (!res.ok) throw new Error(`Google API ${res.status}.${reasonFrom(await res.text().catch(() => ""))}`);
+  if (!res.ok) {
+    const msg = `Google API ${res.status}.${reasonFrom(await res.text().catch(() => ""))}`;
+    // eslint-disable-next-line no-console
+    console.error(`[drive] ${init?.method ?? "GET"} ${url.split("?")[0]} → ${msg}`);
+    throw new Error(msg);
+  }
   return res.json();
 }
 

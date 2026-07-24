@@ -1,6 +1,27 @@
-import { emailFinder, hunterConfigured, HunterError } from "./hunter.js";
+import { emailFinder, domainSearch, hunterConfigured, HunterError } from "./hunter.js";
 import { readContactsGrid, writeEmails, columnIndex } from "./contactsSheet.js";
 import { readAccountContacts, writeContactEmails, headerIndex } from "./accountContacts.js";
+import { writeStatus } from "../finder/sheet.js";
+import type { FinderRequest, FinderResponse } from "../finder/handle.js";
+
+function nowStamp(): string {
+  return new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
+}
+
+/**
+ * Turn Hunter's address pattern into a worked example, so a human can fill in
+ * the ones Hunter couldn't find. e.g. ("{first}.{last}", "acme.com") →
+ * "{first}.{last} → jane.doe@acme.com".
+ */
+function describePattern(pattern: string | null, domain: string | null): string | null {
+  if (!pattern || !domain) return null;
+  const example = pattern
+    .replace(/\{first\}/g, "jane")
+    .replace(/\{last\}/g, "doe")
+    .replace(/\{f\}/g, "j")
+    .replace(/\{l\}/g, "d");
+  return `${pattern}@${domain} (e.g. ${example}@${domain})`;
+}
 
 /**
  * Find emails for the contacts in the Contacts sheet (LAB-34).
@@ -170,11 +191,13 @@ export async function handleFindEmails(req: FindEmailsRequest): Promise<FindEmai
 
 /**
  * Find emails for every row in an account's finder contacts sheet
- * ("<Account> — contacts"), and write them into that sheet's Email column.
- * This is the sheet the "Find contacts with AI" step writes to — distinct from
- * the central Contacts sheet.
+ * ("<Account> — contacts"), writing them into that sheet's Email column. Runs
+ * like the finder: validate + locate the sheet synchronously, reply 202 with the
+ * link, then do the Hunter lookups in the background and report status in the
+ * sheet's top row (Running… → Done / Failed). This is the sheet the "Find
+ * contacts with AI" step writes to — distinct from the central Contacts sheet.
  */
-export async function handleFindContactEmails(req: FindEmailsRequest): Promise<FindEmailsResponse> {
+export async function handleFindContactEmails(req: FinderRequest): Promise<FinderResponse> {
   if (!hunterConfigured()) {
     return { status: 500, body: { error: "Email enrichment isn't configured — set HUNTER_API_KEY on the server (Railway)." } };
   }
@@ -201,55 +224,97 @@ export async function handleFindContactEmails(req: FindEmailsRequest): Promise<F
     }
 
     const nameIdx = headerIndex(sheet.headers, ["name"]);
-    const companyIdx = headerIndex(sheet.headers, ["company"]);
-    let emailIdx = headerIndex(sheet.headers, ["email"]);
-    if (emailIdx < 0) emailIdx = 3; // finder layout: Name, Title, Company, Email, …
     if (nameIdx < 0) {
       return { status: 422, body: { error: "That contacts sheet has no Name column to look up." } };
     }
+    const companyIdx = headerIndex(sheet.headers, ["company"]);
+    let emailIdx = headerIndex(sheet.headers, ["email"]);
+    if (emailIdx < 0) emailIdx = 3; // finder layout: Name, Title, Company, Email, …
 
-    const cell = (row: string[], i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
+    const total = sheet.rows.filter((r) => (r[nameIdx] ?? "").trim()).length;
+    await writeStatus(token, sheet.sheetId, `Running… finding emails for ${total} contacts (${nowStamp()})`);
 
-    const results: EmailResult[] = [];
-    const updates: { rowNumber: number; email: string }[] = [];
-    let stopped = false;
-
-    for (let i = 0; i < sheet.rows.length; i++) {
-      const row = sheet.rows[i];
-      const name = cell(row, nameIdx);
-      if (!name) continue;
-      const company = cell(row, companyIdx) || accountName;
-      const existing = cell(row, emailIdx);
-      if (existing) {
-        results.push({ name, company, email: existing, score: null, outcome: "skipped" });
-        continue;
-      }
-      if (stopped) {
-        results.push({ name, company, email: null, score: null, outcome: "error", message: "Stopped after a Hunter error." });
-        continue;
-      }
+    const run = async () => {
       try {
-        const found = await emailFinder({ fullName: name, company: company || undefined });
-        if (found.email) {
-          updates.push({ rowNumber: sheet.firstDataRow + i, email: found.email });
-          results.push({ name, company, email: found.email, score: found.score, outcome: "found" });
-        } else {
-          results.push({ name, company, email: null, score: null, outcome: "not_found" });
+        // Ask Hunter for the company's address pattern up front, so we can report
+        // "how the emails look" even for people it can't find individually.
+        let patternNote: string | null = null;
+        try {
+          const dom = await domainSearch({ company: accountName, limit: 1 });
+          patternNote = describePattern(dom.pattern, dom.domain);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error(`[enrich] domain-search for "${accountName}" failed:`, e instanceof Error ? e.message : e);
         }
-      } catch (e) {
-        const message = e instanceof HunterError ? e.message : e instanceof Error ? e.message : "Lookup failed.";
-        results.push({ name, company, email: null, score: null, outcome: "error", message });
-        if (e instanceof HunterError && (e.status === 401 || e.status === 429)) stopped = true;
-      }
-    }
 
-    const written = updates.length > 0 ? await writeContactEmails(token, sheet.sheetId, emailIdx, updates) : 0;
-    const found = results.filter((r) => r.outcome === "found").length;
-    const skipped = results.filter((r) => r.outcome === "skipped").length;
+        const cell = (row: string[], i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
+        const updates: { rowNumber: number; email: string }[] = [];
+        let found = 0;
+        let skipped = 0;
+        let notFound = 0;
+        let errored = 0;
+        let stopped = false;
+        let done = 0;
+
+        for (let i = 0; i < sheet.rows.length; i++) {
+          const row = sheet.rows[i];
+          const name = cell(row, nameIdx);
+          if (!name) continue;
+          const company = cell(row, companyIdx) || accountName;
+          if (cell(row, emailIdx)) {
+            skipped++;
+            continue;
+          }
+          if (stopped) {
+            errored++;
+            continue;
+          }
+          try {
+            const hit = await emailFinder({ fullName: name, company: company || undefined });
+            if (hit.email) {
+              updates.push({ rowNumber: sheet.firstDataRow + i, email: hit.email });
+              found++;
+            } else {
+              notFound++;
+            }
+          } catch (e) {
+            errored++;
+            if (e instanceof HunterError && (e.status === 401 || e.status === 429)) stopped = true;
+          }
+          done++;
+          if (done % 5 === 0) {
+            await writeStatus(
+              token,
+              sheet.sheetId,
+              `Running… ${done}/${total} checked — ${found} found so far (${nowStamp()})`,
+            ).catch(() => {});
+          }
+        }
+
+        const written = updates.length > 0 ? await writeContactEmails(token, sheet.sheetId, emailIdx, updates) : 0;
+        const parts = [`found ${found}`, `wrote ${written} to the sheet`];
+        if (skipped) parts.push(`${skipped} already had one`);
+        if (notFound) parts.push(`${notFound} not found`);
+        if (errored) parts.push(`${errored} errored`);
+        const patternSuffix = patternNote ? ` · Email pattern: ${patternNote}` : "";
+        await writeStatus(token, sheet.sheetId, `Done — ${parts.join(", ")}${patternSuffix} (${nowStamp()})`);
+        // eslint-disable-next-line no-console
+        console.log(`[enrich] ${accountName}: done — found ${found}, wrote ${written}, notFound ${notFound}, errored ${errored}`);
+      } catch (e) {
+        const reason = e instanceof HunterError ? e.message : e instanceof Error ? e.message : "unknown error";
+        await writeStatus(token, sheet.sheetId, `Failed: ${reason} (${nowStamp()})`).catch(() => {});
+        throw e;
+      }
+    };
 
     return {
-      status: 200,
-      body: { results, total: results.length, found, written, skipped, sheetUrl: sheet.sheetUrl },
+      status: 202,
+      body: {
+        started: true,
+        sheetUrl: sheet.sheetUrl,
+        message: `Finding emails for ${accountName}'s ${total} contacts — they'll fill into the sheet in a moment.`,
+      },
+      run,
     };
   } catch (err) {
     if (err instanceof HttpError) return { status: err.status, body: { error: err.message } };

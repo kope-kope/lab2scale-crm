@@ -5,10 +5,12 @@ import { useAuth } from "@/auth/AuthProvider";
 import {
   startFindCompanies,
   startFindContacts,
-  findContactEmails,
+  startFindContactEmails,
   type FinderStarted,
-  type ContactEmailsResult,
 } from "@/lib/finder";
+
+type Kind = "companies" | "contacts" | "emails";
+const SHEET_LABEL: Record<Kind, string> = { companies: "companies", contacts: "contacts", emails: "contacts" };
 
 /**
  * The two-stage AI finder (LAB-25/26/27/30).
@@ -26,12 +28,11 @@ export function FindContactsPanel({
   accountFolderId: string;
 }) {
   const { token } = useAuth();
-  const [busy, setBusy] = useState<null | "companies" | "contacts" | "emails">(null);
-  const [result, setResult] = useState<(FinderStarted & { kind: "companies" | "contacts" }) | null>(null);
-  const [emails, setEmails] = useState<(ContactEmailsResult & { done: true }) | null>(null);
+  const [busy, setBusy] = useState<null | Kind>(null);
+  const [result, setResult] = useState<(FinderStarted & { kind: Kind }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function go(kind: "companies" | "contacts") {
+  async function go(kind: Kind) {
     if (!token) return;
     setBusy(kind);
     setError(null);
@@ -40,25 +41,12 @@ export function FindContactsPanel({
       const res =
         kind === "companies"
           ? await startFindCompanies(token, params)
-          : await startFindContacts(token, params);
+          : kind === "contacts"
+            ? await startFindContacts(token, params)
+            : await startFindContactEmails(token, params);
       setResult({ ...res, kind });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start the finder.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function goEmails() {
-    if (!token) return;
-    setBusy("emails");
-    setError(null);
-    setEmails(null);
-    try {
-      const res = await findContactEmails(token, { accountName, accountFolderId });
-      setEmails({ ...res, done: true });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't find emails.");
     } finally {
       setBusy(null);
     }
@@ -82,41 +70,13 @@ export function FindContactsPanel({
           <Users size={16} strokeWidth={1.5} />
           {busy === "contacts" ? "Starting…" : "2 · Find contacts for approved"}
         </Button>
-        <Button variant="secondary" onClick={() => void goEmails()} disabled={busy !== null}>
+        <Button variant="secondary" onClick={() => void go("emails")} disabled={busy !== null}>
           <Mail size={16} strokeWidth={1.5} />
-          {busy === "emails" ? "Finding emails…" : "3 · Find emails"}
+          {busy === "emails" ? "Starting…" : "3 · Find emails"}
         </Button>
       </div>
 
       {error && <p className="mt-4 text-small text-danger-text">{error}</p>}
-
-      {emails && (
-        <div className="mt-4 rounded-card border border-border bg-surface p-4">
-          <p className="text-small text-body">
-            {(() => {
-              const notFound = emails.results.filter((r) => r.outcome === "not_found").length;
-              const errored = emails.results.filter((r) => r.outcome === "error").length;
-              const parts = [`Found ${emails.found} email${emails.found === 1 ? "" : "s"}`];
-              if (emails.written) parts.push(`wrote ${emails.written} to the sheet`);
-              if (emails.skipped) parts.push(`${emails.skipped} already had one`);
-              if (notFound) parts.push(`${notFound} not found`);
-              if (errored) parts.push(`${errored} errored`);
-              return `${parts.join(" · ")}. Checked ${emails.total} contact${emails.total === 1 ? "" : "s"}.`;
-            })()}
-          </p>
-          {emails.sheetUrl && (
-            <a
-              href={emails.sheetUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-flex items-center gap-1.5 text-small text-action"
-            >
-              <ExternalLink size={16} strokeWidth={1.5} />
-              Open the contacts sheet
-            </a>
-          )}
-        </div>
-      )}
 
       {result && (
         <div className="mt-4 rounded-card border border-border bg-surface p-4">
@@ -129,7 +89,7 @@ export function FindContactsPanel({
               className="mt-2 inline-flex items-center gap-1.5 text-small text-action"
             >
               <ExternalLink size={16} strokeWidth={1.5} />
-              Open the {result.kind} sheet
+              Open the {SHEET_LABEL[result.kind]} sheet
             </a>
           )}
           <p className="mt-3 text-small text-muted">
