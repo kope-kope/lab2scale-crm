@@ -2,8 +2,8 @@
 import { CONFIG } from "@/config";
 
 export interface EmailResult {
-  id: string;
   name: string;
+  company: string;
   email: string | null;
   score: number | null;
   outcome: "found" | "not_found" | "skipped" | "error";
@@ -12,33 +12,25 @@ export interface EmailResult {
 
 export interface FindEmailsResult {
   results: EmailResult[];
-  written: number;
+  total: number;
   found: number;
+  written: number;
+  skipped: number;
   sheetUrl: string;
 }
 
-export interface ContactRef {
-  id: string;
-  name: string;
-  company?: string;
-  hasEmail?: boolean;
-}
-
 /**
- * Find emails for an account's contacts. The server calls Hunter (its key never
- * touches the browser) and writes found emails back into the Contacts sheet.
+ * Find emails for every contact in the Contacts sheet. The server reads the
+ * sheet, calls Hunter (its key never touches the browser) for contacts missing
+ * an email, and writes the found ones back.
  */
-export async function findEmailsForAccount(
-  token: string,
-  account: string,
-  contacts: ContactRef[],
-): Promise<FindEmailsResult> {
+export async function findEmails(token: string): Promise<FindEmailsResult> {
   let res: Response;
   try {
     res = await fetch(`${CONFIG.apiBaseUrl}/api/find-emails`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ driveId: CONFIG.driveFolderId, account, contacts }),
+      body: JSON.stringify({ driveId: CONFIG.driveFolderId }),
     });
   } catch {
     throw new Error("Couldn't reach the server (it may be redeploying). Try again in a moment.");
@@ -47,8 +39,10 @@ export async function findEmailsForAccount(
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status}).`);
   return {
     results: data.results ?? [],
-    written: data.written ?? 0,
+    total: data.total ?? 0,
     found: data.found ?? 0,
+    written: data.written ?? 0,
+    skipped: data.skipped ?? 0,
     sheetUrl: data.sheetUrl ?? "",
   };
 }
