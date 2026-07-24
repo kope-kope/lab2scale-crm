@@ -137,6 +137,20 @@ export function LeadsPage() {
     };
   });
 
+  // Verdict/status tally for the header summary.
+  const order = ["Pursue", "Gate", "Pass"];
+  const tally = leads.reduce<Record<string, number>>((acc, l) => {
+    const k = (l.status ?? "").trim() || "Unscreened";
+    acc[k] = (acc[k] ?? 0) + 1;
+    return acc;
+  }, {});
+  const tallyKeys = [
+    ...order.filter((k) => tally[k]),
+    ...Object.keys(tally)
+      .filter((k) => !order.includes(k))
+      .sort(),
+  ];
+
   return (
     <div>
       <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -147,6 +161,15 @@ export function LeadsPage() {
               ? "Loading from Drive…"
               : `${leads.length} prospective ${leads.length === 1 ? "company" : "companies"}, read live from the Leads sheet.`}
           </p>
+          {!loading && leads.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {tallyKeys.map((k) => (
+                <Badge key={k} role={statusRole(k)}>
+                  {tally[k]} {k}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
         <Button onClick={() => void qualify()} disabled={anyBusy || leads.length === 0}>
           <Sparkles size={16} strokeWidth={1.5} />
